@@ -1,0 +1,40 @@
+{
+	"name": "folder_retention",
+	"version": "0.9.0",
+	"private": true,
+	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"scripts": {
+		"build": "vite build --mode production",
+		"dev": "vite build --mode development --watch",
+		"test": "node --test \"src/**/*.test.js\"",
+		"l10n": "node build/l10n-build.js",
+		"l10n:check": "node build/l10n-check.js",
+		"package": "sh scripts/package.sh"
+	},
+	"browserslist": [
+		"extends @nextcloud/browserslist-config"
+	],
+	"engines": {
+		"node": "^24.0.0"
+	},
+	"dependencies": {
+		"@mdi/js": "^7.4.47",
+		"@nextcloud/axios": "^2.6.0",
+		"@nextcloud/dialogs": "^7.5.0",
+		"@nextcloud/files": "^4.1.0",
+		"@nextcloud/initial-state": "^3.0.0",
+		"@nextcloud/l10n": "^3.4.1",
+		"@nextcloud/password-confirmation": "^6.1.0",
+		"@nextcloud/router": "^3.2.0",
+		"@nextcloud/vue": "^9.13.1",
+		"vue": "^3.5.43"
+	},
+	"devDependencies": {
+		"@nextcloud/browserslist-config": "^3.1.2",
+		"@nextcloud/vite-config": "^2.5.4",
+		"sass": "^1.105.0",
+		"typescript": "~5.9.3",
+		"vite": "^7.3.6"
+	}
+}

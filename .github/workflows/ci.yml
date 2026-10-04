@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: 2026 hotochan123
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Third-party actions are pinned to a commit, not to a tag that can be moved;
+# the comment names the release the commit belongs to.
+
+jobs:
+  frontend:
+    name: Bundle, translations, release archive
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # js/ is not committed (.gitignore): the release archive is built from
+      # the sources, so there is no committed bundle to compare against.
+      - name: Build the bundle
+        run: npm run build
+
+      - name: JS unit tests
+        run: npm test
+
+      # Every t()/n() string in lib/, templates/ and src/ needs a German
+      # translation in l10n/de.json, and l10n/de.js must be generated from it.
+      - name: Translations complete
+        run: npm run l10n:check
+
+      - name: Syntax of the build and shell scripts
+        run: |
+          for f in build/*.js; do node --check "$f"; done
+          for f in scripts/*.sh dev/it/run.sh; do bash -n "$f"; done
+
+      # ubuntu-latest (24.04) does not ship xmllint.
+      - name: Validate info.xml against the App Store schema
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libxml2-utils
+          curl -fsSL -o /tmp/info.xsd https://apps.nextcloud.com/schema/apps/info.xsd
+          xmllint --noout --schema /tmp/info.xsd appinfo/info.xml
+
+      # Packs a release archive from the state just built. Catches missing
+      # files and sources packed by mistake before they end up in the store.
+      # Signing happens only locally (it needs the private key).
+      # ALLOW_UNRELEASED=1: most pushes are not a release, so a missing
+      # CHANGELOG section or version bump is only a warning here.
+      - name: Pack a test release archive
+        run: SKIP_BUILD=1 ALLOW_UNRELEASED=1 SIGN=0 INFO_XSD=/tmp/info.xsd sh scripts/package.sh
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: folder_retention-tarball
+          path: dist/folder_retention-*.tar.gz*
+          retention-days: 7
+
+  php:
+    name: PHPUnit (${{ matrix.server }}, PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every server version info.xml declares, with the oldest PHP it
+        # supports and with the newest: Nextcloud 34 with PHP 8.2 and 8.5,
+        # Nextcloud 35 (PHP 8.3 to 8.5) with 8.3 and 8.5.
+        include:
+          - server: stable34
+            php: '8.2'
+          - server: stable34
+            php: '8.5'
+          - server: stable35
+            php: '8.3'
+          - server: stable35
+            php: '8.5'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: tokenizer, xmlwriter, simplexml, intl
+          tools: composer:v2
+          coverage: none
+
+      - name: Syntax check
+        run: find lib templates tests dev -name '*.php' -print0 | xargs -0 -n1 php -l >/dev/null
+
+      # The tests run against the OCP interfaces of nextcloud/ocp, not a full
+      # server. composer.lock pins dev-stable34; for Nextcloud 35 the job
+      # swaps in dev-stable35 (which needs PHP 8.3 as platform).
+      - name: Install dependencies (Nextcloud 34)
+        if: matrix.server == 'stable34'
+        run: composer install --no-interaction --no-progress
+
+      - name: Install dependencies (Nextcloud 35)
+        if: matrix.server == 'stable35'
+        run: |
+          composer config platform.php 8.3
+          composer require --dev --no-interaction --no-progress -W nextcloud/ocp:dev-stable35
+
+      - name: Unit tests
+        run: vendor/bin/phpunit -c tests/phpunit.xml

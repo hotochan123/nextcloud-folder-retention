@@ -1,0 +1,977 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OCA\FolderRetention\Tests\Unit\Service;
+
+use DateTimeZone;
+use OCA\FolderRetention\Db\LogEntry;
+use OCA\FolderRetention\Db\LogMapper;
+use OCA\FolderRetention\Model\FileRow;
+use OCA\FolderRetention\Model\Period;
+use OCA\FolderRetention\Model\PeriodUnit;
+use OCA\FolderRetention\Model\RetentionRoot;
+use OCA\FolderRetention\Model\RetentionRule;
+use OCA\FolderRetention\Model\RuleSet;
+use OCA\FolderRetention\Service\ContentLanguage;
+use OCA\FolderRetention\Service\Deleter;
+use OCA\FolderRetention\Service\Evaluator;
+use OCA\FolderRetention\Service\FileCacheReader;
+use OCA\FolderRetention\Service\FirstSeen;
+use OCA\FolderRetention\Service\RetentionRunner;
+use OCA\FolderRetention\Service\RootProvider;
+use OCA\FolderRetention\Service\RuleResolver;
+use OCA\FolderRetention\Service\RuleService;
+use OCA\FolderRetention\Service\Settings;
+use OCA\FolderRetention\Service\TagService;
+use OCA\FolderRetention\Tests\Unit\FakeL10N;
+use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\Security\ISecureRandom;
+use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
+
+/**
+ * Job-Steuerung: Zeitbudget, Cursor, Fortsetzen, Tageszyklus, Simulation vs. echt,
+ * Neuprüfung vor dem Löschen, Fehler pro Datei, Sperren.
+ *
+ * Zwei Team-Ordner A (Storage 1, Wurzel 100) und B (Storage 2, Wurzel 200) mit je drei
+ * Dateien, alle weit über der Frist (Upload-Zeit 1, Standardregel 1 Tag).
+ */
+class RetentionRunnerTest extends TestCase {
+	private const NOW = 1_800_000_000;
+
+	private Settings&MockObject $settings;
+	private Deleter&MockObject $deleter;
+	private LogMapper&MockObject $logMapper;
+	private TagService&MockObject $tags;
+	private bool $tagsEnabled = false;
+	private bool $tagApplyFails = false;
+	/** @var array<int, ?int> alle an TagService::apply übergebenen Wünsche */
+	private array $appliedTags = [];
+	private ?array $cursor = null;
+	private int $lastCycle = 0;
+	/** @var (callable(): void)|null Stand der App-Config nach Settings::refresh (anderer Prozess hat geschrieben) */
+	private $onRefresh = null;
+	private int $refreshes = 0;
+	private int $budget = 0;
+	private bool $simulation = true;
+	/** Simulationsschalter in der Datenbank (Settings::isSimulationFresh); null = wie $simulation */
+	private ?bool $simulationDb = null;
+	/** Settings::blockRoot wirft (DB-Timeout, Deadlock) */
+	private bool $blockFails = false;
+	/** nach dem Löschen dieser Datei schaltet ein Admin die Simulation ein (nur in der Datenbank) */
+	private ?int $simulationOnAfter = null;
+	/** @var list<int> */
+	private array $deletedIds = [];
+	/** @var list<int> */
+	private array $loggedIds = [];
+	/** @var list<LogEntry> */
+	private array $logged = [];
+	/** @var array<int, list<FileRow>> Storage → Dateien, wie fetchFiles sie liefert */
+	private array $files = [];
+	/** @var array<int, FileRow> abweichender Stand bei der Neuprüfung (fileid → Zeile) */
+	private array $freshRows = [];
+	/** Regeln ab dem zweiten snapshot()-Aufruf (= Neuprüfung), null = unverändert */
+	private ?RuleSet $freshRules = null;
+	/** Frist der Standardregel (null = 1 Tag) */
+	private ?Period $period = null;
+	/** @var array<int, string> fileid → Status, den der Deleter liefern soll */
+	private array $deleteResult = [];
+	/** @var list<int> Datei-IDs, bei denen der Deleter eine Ausnahme wirft */
+	private array $deleteThrows = [];
+	/** @var array<int, int> fileid → letzte Löschung laut Protokoll */
+	private array $lastDeleted = [];
+	/** @var list<int> per FirstSeen::record vermerkte Datei-IDs */
+	private array $recordedSeen = [];
+	/** @var list<int> per FirstSeen::recordRestored vermerkte Datei-IDs */
+	private array $recordedRestored = [];
+	/** @var array<string, array{label: string, reason: string, at: int}> */
+	private array $blocked = [];
+	private ?array $foreignLease = null;
+	private int $leaseReleased = 0;
+	/** ab der wievielten Verlängerung die Sperre einem anderen gehört (null = nie) */
+	private ?int $leaseLostAt = null;
+	private int $leaseRenewals = 0;
+	/** Grenze Bestand/neu (Settings::seenMaxFileId): alle Standarddateien sind Bestand */
+	private ?int $seenMark = 1000;
+	/** höchste Datei-ID im Filecache (für die Grenze, falls sie fehlt) */
+	private int $maxFileId = 1000;
+	/** @var list<int> an initSeenMaxFileId übergebene Werte */
+	private array $markInit = [];
+	/** @var array<int, list<array{0: RetentionRoot, 1: FileRow, 2: string}>> fileid → nach ihrem Löschen gemeldete Verluste */
+	private array $lostAfter = [];
+	/** @var list<array{0: RetentionRoot, 1: FileRow, 2: string}> */
+	private array $pendingLost = [];
+	/** @var array<int, string> per markDeletedFinal berichtigte Einträge */
+	private array $markedFinal = [];
+	/** Datei-ID, nach deren Löschversuch der Deleter „angehalten“ meldet */
+	private ?int $haltAfter = null;
+	private ?string $halted = null;
+	private FirstSeen&MockObject $firstSeen;
+
+	private function runner(bool $cli = true): RetentionRunner {
+		$rootA = new RetentionRoot(RetentionRoot::KIND_TEAM, 1, 100, '__groupfolders/1', 'A', ['alice']);
+		$rootB = new RetentionRoot(RetentionRoot::KIND_TEAM, 2, 200, '__groupfolders/2', 'B', ['bob']);
+		$this->files = $this->files ?: [
+			1 => [new FileRow(11, 1, 100, '__groupfolders/1/a', 1, null, 1), new FileRow(12, 1, 100, '__groupfolders/1/b', 1, null, 1), new FileRow(13, 1, 100, '__groupfolders/1/c', 1, null, 1),
+				new FileRow(14, 1, 100, '__groupfolders/1/Unterordner', 1, null, 1, 0, true)],
+			2 => [new FileRow(21, 2, 200, '__groupfolders/2/a', 1, null, 1), new FileRow(22, 2, 200, '__groupfolders/2/b', 1, null, 1), new FileRow(23, 2, 200, '__groupfolders/2/c', 1, null, 1)],
+		];
+		$files = &$this->files;
+
+		$roots = $this->createMock(RootProvider::class);
+		$roots->method('getRoots')->willReturn([$rootA, $rootB]);
+
+		$fileCache = $this->createMock(FileCacheReader::class);
+		$fileCache->method('fetchFiles')->willReturnCallback(
+			fn (int $storage, string $prefix, int $after, int $limit, bool $folders = false) => array_values(array_slice(
+				array_filter($files[$storage], fn (FileRow $f) => $f->fileId > $after && ($folders || !$f->isFolder)), 0, $limit)));
+		$fileCache->method('maxFileId')->willReturnCallback(fn () => $this->maxFileId);
+		$fileCache->method('chain')->willReturnCallback(fn (int $folder, int $stop) => [$folder]);
+		$fileCache->method('freshChain')->willReturnCallback(fn (int $folder, int $stop) => $folder === $stop ? [$folder] : null);
+		$fileCache->method('getFileRow')->willReturnCallback(function (int $id) {
+			if (array_key_exists($id, $this->freshRows)) {
+				return $this->freshRows[$id];
+			}
+			foreach ($this->files as $list) {
+				foreach ($list as $f) {
+					if ($f->fileId === $id) {
+						return $f;
+					}
+				}
+			}
+			return null;
+		});
+
+		$rules = $this->createMock(RuleService::class);
+		$snapshots = 0;
+		$rules->method('snapshot')->willReturnCallback(function () use (&$snapshots) {
+			$initial = new RuleSet(new RetentionRule(1, null, $this->period ?? Period::of(1, PeriodUnit::Day), null), []);
+			return $snapshots++ > 0 && $this->freshRules !== null ? $this->freshRules : $initial;
+		});
+
+		$this->settings = $this->createMock(Settings::class);
+		$this->settings->method('getCursor')->willReturnCallback(fn () => $this->cursor);
+		$this->settings->method('setCursor')->willReturnCallback(function (?string $root, int $after = 0) {
+			$this->cursor = $root === null ? null : ['root' => $root, 'after' => $after];
+		});
+		$this->settings->method('lastCycleCompleted')->willReturnCallback(fn () => $this->lastCycle);
+		$this->settings->method('refresh')->willReturnCallback(function () {
+			$this->refreshes++;
+			if ($this->onRefresh !== null) {
+				($this->onRefresh)();
+			}
+		});
+		$this->settings->method('setLastCycleCompleted')->willReturnCallback(function (int $ts) {
+			$this->lastCycle = $ts;
+		});
+		$this->settings->method('timeBudget')->willReturnCallback(fn () => $this->budget);
+		$this->settings->method('batchSize')->willReturn(2);
+		$this->settings->method('isSimulation')->willReturnCallback(fn () => $this->simulation);
+		$this->settings->method('isSimulationFresh')->willReturnCallback(fn () => $this->simulationDb ?? $this->simulation);
+		$this->settings->method('includePersonal')->willReturn(false);
+		$this->settings->method('timezone')->willReturn(new DateTimeZone('Europe/Berlin'));
+		$this->settings->method('tagsEnabled')->willReturnCallback(fn () => $this->tagsEnabled);
+		$this->settings->method('acquireRunLease')->willReturnCallback(fn () => $this->foreignLease);
+		$this->settings->method('releaseRunLease')->willReturnCallback(function () {
+			$this->leaseReleased++;
+		});
+		$this->settings->method('renewRunLease')->willReturnCallback(fn () => $this->leaseLostAt === null || ++$this->leaseRenewals < $this->leaseLostAt);
+		$this->settings->method('runLease')->willReturnCallback(fn () => $this->leaseLostAt === null ? null : ['holder' => 'Hintergrundjob (PID 2, y)', 'token' => 'fremd', 'until' => self::NOW + 900]);
+		$this->settings->method('seenMaxFileId')->willReturnCallback(fn () => $this->seenMark);
+		$this->settings->method('initSeenMaxFileId')->willReturnCallback(function (int $id) {
+			$this->markInit[] = $id;
+			$this->seenMark ??= max(1, $id);
+		});
+		$this->settings->method('isRootBlocked')->willReturnCallback(fn (string $key) => isset($this->blocked[$key]));
+		$this->settings->method('blockRoot')->willReturnCallback(function (string $key, string $label, string $reason, int $at) {
+			if ($this->blockFails) {
+				throw new \RuntimeException('Deadlock auf folder_retention_block');
+			}
+			$this->blocked[$key] = ['label' => $label, 'reason' => $reason, 'at' => $at];
+		});
+
+		$this->tags = $this->createMock(TagService::class);
+		$this->tags->method('tagIdFor')->willReturn(7);
+		$this->tags->method('apply')->willReturnCallback(function (array $desired) {
+			if ($this->tagApplyFails) {
+				throw new \RuntimeException('DB weg');
+			}
+			$this->appliedTags += $desired;
+		});
+
+		$this->deleter = $this->createMock(Deleter::class);
+		$this->deleter->method('haltReason')->willReturnCallback(fn () => $this->halted);
+		$this->deleter->method('delete')->willReturnCallback(function (RetentionRoot $root, FileRow $f) {
+			if ($f->fileId === $this->haltAfter) {
+				$this->halted = 'Papierkorb kaputt';
+				return [LogEntry::STATUS_ERROR, 'Papierkorb kaputt – weitere Löschungen in diesem Lauf angehalten'];
+			}
+			if (in_array($f->fileId, $this->deleteThrows, true)) {
+				throw new \RuntimeException('Speicher kaputt');
+			}
+			$status = $this->deleteResult[$f->fileId] ?? LogEntry::STATUS_DELETED;
+			if ($status === LogEntry::STATUS_DELETED) {
+				$this->deletedIds[] = $f->fileId;
+			}
+			if ($f->fileId === $this->simulationOnAfter) {
+				$this->simulationDb = true;
+			}
+			if (isset($this->lostAfter[$f->fileId])) {
+				array_push($this->pendingLost, ...$this->lostAfter[$f->fileId]);
+				$this->halted = 'Papierkorb-Eintrag überschrieben';
+			}
+			return [$status, $status === LogEntry::STATUS_DELETED ? null : 'Meldung'];
+		});
+
+		$this->deleter->method('takeLost')->willReturnCallback(function () {
+			$lost = $this->pendingLost;
+			$this->pendingLost = [];
+			return $lost;
+		});
+
+		$this->logMapper = $this->createMock(LogMapper::class);
+		$this->logMapper->method('markDeletedFinal')->willReturnCallback(function (int $id, string $msg) {
+			$this->markedFinal[$id] = $msg;
+			return true;
+		});
+		// wie die SQL-Abfrage: gleiche Datei, Regel, Frist (rule_label) und gleiches Bezugsdatum samt Quelle
+		$this->logMapper->method('hasSimulated')->willReturnCallback(fn (int $id, ?int $ruleId, string $label, int $ref, string $source) => array_filter(
+			$this->logged,
+			fn (LogEntry $e) => $e->getFileId() === $id && $e->getMode() === LogEntry::MODE_SIMULATION && $e->getStatus() === LogEntry::STATUS_WOULD_DELETE
+				&& $e->getRuleId() === $ruleId && $e->getRuleLabel() === $label && $e->getReferenceDate() === $ref && $e->getReferenceSource() === $source,
+		) !== []);
+		$this->logMapper->method('insert')->willReturnCallback(function (LogEntry $e) {
+			$this->loggedIds[] = $e->getFileId();
+			$this->logged[] = $e;
+			return $e;
+		});
+		$this->logMapper->method('lastDeleted')->willReturnCallback(
+			fn (array $ids) => array_intersect_key($this->lastDeleted, array_flip($ids)));
+
+		$this->firstSeen = $this->createMock(FirstSeen::class);
+		$this->firstSeen->method('record')->willReturnCallback(function (array $ids) {
+			array_push($this->recordedSeen, ...$ids);
+		});
+		$this->firstSeen->method('recordRestored')->willReturnCallback(function (array $ids) {
+			array_push($this->recordedRestored, ...$ids);
+		});
+
+		$random = $this->createMock(ISecureRandom::class);
+		$random->method('generate')->willReturn('token');
+
+		$time = $this->createMock(ITimeFactory::class);
+		$time->method('getTime')->willReturn(self::NOW);
+
+		// stored texts (log) in German, as on existing installs
+		$language = $this->createMock(ContentLanguage::class);
+		$language->method('l10n')->willReturn(FakeL10N::de());
+		$language->method('english')->willReturn(FakeL10N::en());
+
+		$args = [$roots, $fileCache, new Evaluator(new RuleResolver()), $rules,
+			$this->settings, $this->deleter, $this->logMapper, $time, new NullLogger(), $this->tags, new RuleResolver(), $this->firstSeen, $random, FakeL10N::de(), $language];
+		if (!$cli) {
+			// cron.php im Web (AJAX/Webcron)
+			return new class(...$args) extends RetentionRunner {
+				protected function isCli(): bool {
+					return false;
+				}
+			};
+		}
+		return new RetentionRunner(...$args);
+	}
+
+	public function testBudgetZeroProcessesOneFilePerRunAndResumesAtCursor(): void {
+		$this->simulation = false;
+		$this->budget = 0; // Budget sofort erschöpft → genau eine Datei pro Lauf
+		$runner = $this->runner();
+
+		$runs = 0;
+		do {
+			$stats = $runner->runScheduled();
+			$runs++;
+			$this->assertLessThan(20, $runs, 'Endlosschleife');
+		} while (!$stats->completed);
+
+		$this->assertSame([11, 12, 13, 21, 22, 23], $this->deletedIds, 'jede Datei genau einmal, in Reihenfolge');
+		$this->assertNull($this->cursor, 'Cursor nach Zyklusende gelöscht');
+		$this->assertSame(self::NOW, $this->lastCycle);
+	}
+
+	public function testCursorIsStoredPerRoot(): void {
+		$this->budget = 0;
+		$runner = $this->runner();
+		$runner->runScheduled();
+		$this->assertSame(['root' => 'team:0000000001:000000000100', 'after' => 11], $this->cursor);
+		$runner->runScheduled();
+		$runner->runScheduled();
+		$runner->runScheduled();
+		$this->assertSame('team:0000000002:000000000200', $this->cursor['root']);
+		$this->assertSame(21, $this->cursor['after']);
+	}
+
+	public function testLargeBudgetCompletesInOneRun(): void {
+		$this->budget = 3600;
+		$stats = $this->runner()->runScheduled();
+		$this->assertTrue($stats->completed);
+		$this->assertSame(6, $stats->due);
+		$this->assertNull($this->cursor);
+	}
+
+	public function testNoNewCycleWithin23Hours(): void {
+		$this->budget = 3600;
+		$this->lastCycle = self::NOW - 3600;
+		$stats = $this->runner()->runScheduled();
+		$this->assertTrue($stats->notDue);
+		$this->assertSame(0, $stats->evaluated);
+	}
+
+	public function testCursorIsReReadAfterAcquiringTheLease(): void {
+		// Prozess-Cache: cron.php kennt noch den Cursor von vor seinem Start; während er andere
+		// Jobs abarbeitete, hat ein anderer Lauf den Zyklus beendet
+		$this->budget = 3600;
+		$this->cursor = ['root' => 'team:0000000001:000000000100', 'after' => 11];
+		$this->onRefresh = function () {
+			$this->cursor = null;
+			$this->lastCycle = self::NOW - 60;
+		};
+		$stats = $this->runner()->runScheduled();
+		$this->assertSame(1, $this->refreshes);
+		$this->assertTrue($stats->notDue, 'frischer Stand: Zyklus gerade beendet');
+		$this->assertSame(0, $stats->evaluated);
+		$this->assertSame([], $this->deletedIds);
+		$this->assertSame(1, $this->leaseReleased, 'Sperre wieder freigegeben');
+	}
+
+	public function testNewCycleAfter23Hours(): void {
+		$this->budget = 3600;
+		$this->lastCycle = self::NOW - 23 * 3600;
+		$stats = $this->runner()->runScheduled();
+		$this->assertFalse($stats->notDue);
+		$this->assertSame(6, $stats->evaluated);
+	}
+
+	public function testSimulationNeverDeletesAndLogsOnce(): void {
+		$this->simulation = true;
+		$this->budget = 3600;
+		$runner = $this->runner();
+		$this->deleter->expects($this->never())->method('delete');
+
+		$runner->runScheduled();
+		$this->lastCycle = 0; // nächsten Zyklus erzwingen
+		$runner->runScheduled();
+
+		$this->assertSame([11, 12, 13, 21, 22, 23], $this->loggedIds, 'zweiter Zyklus loggt nicht erneut');
+	}
+
+	public function testSimulationLogsAgainWhenEvaluationChanges(): void {
+		$this->simulation = true;
+		$runner = $this->runner();
+		$runner->runFull(false, null);
+		$this->assertSame([11, 12, 13, 21, 22, 23], $this->loggedIds);
+
+		// Alteintrag wie von 0.7.x: anderes Bezugsdatum/andere Quelle → neuer, ehrlicher Eintrag
+		$this->logged[0]->setReferenceSource('mtime');
+		$this->logged[1]->setReferenceDate(0);
+		$runner->runFull(false, null);
+		$this->assertSame([11, 12, 13, 21, 22, 23, 11, 12], $this->loggedIds);
+
+		// Friständerung an derselben Regel: rule_label ändert sich → alle neu
+		$this->period = Period::of(2, PeriodUnit::Day);
+		$runner->runFull(false, null);
+		$this->assertSame([11, 12, 13, 21, 22, 23, 11, 12, 11, 12, 13, 21, 22, 23], $this->loggedIds);
+		$this->assertSame('Standard: 2 Tage', end($this->logged)->getRuleLabel());
+
+		// unverändert: keine Wiederholung
+		$runner->runFull(false, null);
+		$this->assertCount(14, $this->loggedIds);
+	}
+
+	public function testDryRunWritesNothing(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		$this->deleter->expects($this->never())->method('delete');
+		$this->logMapper->expects($this->never())->method('insert');
+
+		$stats = $runner->runFull(true, null);
+		$this->assertSame(6, $stats->due);
+	}
+
+	public function testRunFullRespectsGlobalSimulation(): void {
+		$this->simulation = true;
+		$runner = $this->runner();
+		$this->deleter->expects($this->never())->method('delete');
+		$stats = $runner->runFull(false, null);
+		$this->assertSame(6, $stats->simulated);
+	}
+
+	public function testRuleFilter(): void {
+		$this->simulation = false;
+		$stats = $this->runner()->runFull(false, 999);
+		$this->assertSame(0, $stats->due);
+		$this->assertSame([], $this->deletedIds);
+	}
+
+	public function testTagsDisabledLeavesTagsAlone(): void {
+		$runner = $this->runner();
+		$this->tags->expects($this->never())->method('apply');
+		$this->tags->expects($this->never())->method('sweepOrphans');
+		$runner->runFull(false, null);
+		$this->budget = 3600;
+		$runner->runScheduled();
+	}
+
+	public function testTagsCoverFilesFoldersAndRoots(): void {
+		$this->tagsEnabled = true;
+		$runner = $this->runner();
+		$this->tags->expects($this->once())->method('sweepOrphans')->willReturn(0);
+
+		$stats = $runner->runFull(false, null);
+
+		$this->assertSame(6, $stats->evaluated, 'Ordner werden getaggt, aber nicht bewertet');
+		$ids = array_keys($this->appliedTags);
+		sort($ids);
+		$this->assertSame([11, 12, 13, 14, 21, 22, 23, 100, 200], $ids);
+		$this->assertSame([7], array_values(array_unique($this->appliedTags)));
+	}
+
+	public function testDryRunAndRuleFilterDoNotTag(): void {
+		$this->tagsEnabled = true;
+		$runner = $this->runner();
+		$this->tags->expects($this->never())->method('apply');
+		$runner->runFull(true, null);
+		$runner->runFull(false, 1);
+	}
+
+	public function testTagFailureDoesNotStopDeletion(): void {
+		$this->tagsEnabled = true;
+		$this->simulation = false;
+		$runner = $this->runner();
+		$this->tagApplyFails = true;
+
+		$stats = $runner->runFull(false, null);
+		$this->assertSame([11, 12, 13, 21, 22, 23], $this->deletedIds);
+		$this->assertSame(6, $stats->deleted);
+	}
+
+	// --- Neuprüfung unmittelbar vor dem Löschen (F6) ---------------------------------
+
+	public function testMovedSinceScanIsSkippedNotDeleted(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		// Zwischen Scan und Löschen in einen anderen Ordner verschoben – mtime bleibt dabei gleich
+		$this->freshRows[12] = new FileRow(12, 1, 150, '__groupfolders/1/Behalten/b', 1, null, 1);
+
+		$stats = $runner->runFull(false, null);
+
+		$this->assertSame([11, 13, 21, 22, 23], $this->deletedIds);
+		$this->assertSame(1, $stats->skipped);
+		$entry = $this->logEntryFor(12);
+		$this->assertSame(LogEntry::STATUS_SKIPPED_CHANGED, $entry->getStatus());
+		$this->assertStringContainsString('verschoben', (string)$entry->getMessage());
+	}
+
+	public function testParentChainIsResolvedFreshNotFromScanCache(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		// Gleicher Pfad im Datensatz, aber der Elternordner hängt nicht mehr unter der Wurzel
+		$this->freshRows[21] = new FileRow(21, 2, 999, '__groupfolders/2/a', 1, null, 1);
+
+		$runner->runFull(false, null);
+
+		$this->assertNotContains(21, $this->deletedIds);
+		$this->assertSame(LogEntry::STATUS_SKIPPED_CHANGED, $this->logEntryFor(21)->getStatus());
+	}
+
+	public function testDeletedSinceScanIsSkipped(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		$this->freshRows[13] = null;
+		$runner->runFull(false, null);
+		$this->assertNotContains(13, $this->deletedIds);
+		$this->assertSame(LogEntry::STATUS_SKIPPED_CHANGED, $this->logEntryFor(13)->getStatus());
+	}
+
+	public function testRuleChangedSinceScanIsSkipped(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		// Admin hat die Standardfrist inzwischen auf „Nie“ gestellt
+		$this->freshRules = new RuleSet(new RetentionRule(1, null, Period::never(), null), []);
+
+		$stats = $runner->runFull(false, null);
+
+		$this->assertSame([], $this->deletedIds);
+		$this->assertSame(6, $stats->skipped);
+		$this->assertStringContainsString('nicht mehr fällig', (string)$this->logEntryFor(11)->getMessage());
+	}
+
+	public function testOtherRuleAtRecheckIsSkipped(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		// Neue Ordnerregel an der Wurzel (gleiche Frist, andere Regel)
+		$this->freshRules = new RuleSet(new RetentionRule(1, null, Period::of(1, PeriodUnit::Day), null),
+			[100 => new RetentionRule(5, 100, Period::of(1, PeriodUnit::Day), \OCA\FolderRetention\Model\Scope::Inherit)]);
+
+		$runner->runFull(false, null);
+
+		$this->assertSame([21, 22, 23], $this->deletedIds);
+		$this->assertStringContainsString('Regel', (string)$this->logEntryFor(11)->getMessage());
+	}
+
+	// --- Wiederhergestellte Dateien und „zuerst gesehen“ (F3, F4) ---------------------
+
+	public function testRestoredFileIsNotDeletedAgain(): void {
+		$this->simulation = false;
+		$this->lastDeleted = [11 => self::NOW - 3600];
+
+		$this->runner()->runFull(false, null);
+
+		$this->assertNotContains(11, $this->deletedIds, 'gestern gelöscht, heute wiederhergestellt → nicht wieder weg');
+		$this->assertContains(12, $this->deletedIds);
+	}
+
+	public function testFileRestoredLongAfterDeletionCountsFromRestore(): void {
+		// Regel 1 Tag; vor 10 Tagen gelöscht, erst jetzt zurückgeholt (Eintrag von vor der Löschung)
+		$this->simulation = false;
+		$this->lastDeleted = [11 => self::NOW - 86400 * 10];
+		$this->files = [
+			1 => [new FileRow(11, 1, 100, '__groupfolders/1/a', 1, 1, 1, firstSeen: self::NOW - 86400 * 300), new FileRow(12, 1, 100, '__groupfolders/1/b', 1, null, 1, firstSeen: 5)],
+			2 => [],
+		];
+
+		$this->runner()->runFull(false, null);
+
+		$this->assertSame([11], $this->recordedRestored, 'Wiederherstellung als „zuerst gesehen“ vermerkt');
+		$this->assertSame([], $this->recordedSeen);
+		$this->assertSame([12], $this->deletedIds, 'zurückgeholt → nicht sofort wieder weg');
+
+		// Ein Tag nach der Wiederherstellung (first_seen jetzt danach) ist sie wieder fällig
+		$this->recordedRestored = [];
+		$this->deletedIds = [];
+		$this->files[1] = [new FileRow(11, 1, 100, '__groupfolders/1/a', 1, 1, 1, firstSeen: self::NOW - 86400 * 2)];
+		$this->runner()->runFull(false, null);
+		$this->assertSame([], $this->recordedRestored, 'schon nach der Löschung gesehen – nicht neu vermerken');
+		$this->assertSame([11], $this->deletedIds);
+	}
+
+	public function testDryRunDoesNotRecordRestoreButCountsFromNow(): void {
+		$this->lastDeleted = [11 => self::NOW - 86400 * 10];
+		$this->files = [1 => [new FileRow(11, 1, 100, '__groupfolders/1/a', 1, 1, 1, firstSeen: self::NOW - 86400 * 300)], 2 => []];
+		$runner = $this->runner();
+		$stats = $runner->runFull(true, null);
+		$this->assertSame(0, $stats->due);
+		$this->assertSame([], $this->recordedRestored);
+	}
+
+	public function testFilesWithoutUploadTimeAreRecordedAndNotDue(): void {
+		$this->simulation = false;
+		$this->files = [
+			1 => [new FileRow(11, 1, 100, '__groupfolders/1/alt', 1, 1, 0), new FileRow(12, 1, 100, '__groupfolders/1/gesehen', 1, 1, null, firstSeen: 5)],
+			2 => [],
+		];
+		$stats = $this->runner()->runFull(false, null);
+
+		$this->assertSame([11], $this->recordedSeen, 'nur die Datei ohne Eintrag');
+		$this->assertSame([12], $this->deletedIds, 'ohne Eintrag: ab jetzt gesehen, nicht fällig');
+		$this->assertSame(1, $stats->due);
+	}
+
+	public function testDryRunAndPreviewDoNotRecordFirstSeen(): void {
+		$this->files = [1 => [new FileRow(11, 1, 100, '__groupfolders/1/alt', 1, 1, 0)], 2 => []];
+		$runner = $this->runner();
+		$runner->runFull(true, null);
+		$runner->preview(null, 7, 10, 10.0);
+		$this->assertSame([], $this->recordedSeen);
+	}
+
+	public function testSimulationRecordsFirstSeen(): void {
+		$this->simulation = true;
+		$this->budget = 3600;
+		$this->files = [1 => [new FileRow(11, 1, 100, '__groupfolders/1/alt', 1, 1, 0)], 2 => []];
+		$this->runner()->runScheduled();
+		$this->assertSame([11], $this->recordedSeen);
+	}
+
+	// --- Fehler pro Datei (F10) --------------------------------------------------------
+
+	public function testExceptionForOneFileDoesNotStopTheRun(): void {
+		$this->simulation = false;
+		$this->budget = 3600;
+		$this->deleteThrows = [12];
+
+		$stats = $this->runner()->runScheduled();
+
+		$this->assertTrue($stats->completed);
+		$this->assertSame([11, 13, 21, 22, 23], $this->deletedIds);
+		$this->assertSame(1, $stats->errors);
+		$this->assertSame(LogEntry::STATUS_ERROR, $this->logEntryFor(12)->getStatus());
+		$this->assertNull($this->cursor);
+	}
+
+	public function testExceptionKeepsCursorMovingWithBudget(): void {
+		$this->simulation = false;
+		$this->budget = 0;
+		$this->deleteThrows = [11];
+		$runner = $this->runner();
+		$runner->runScheduled();
+		$this->assertSame(['root' => 'team:0000000001:000000000100', 'after' => 11], $this->cursor, 'Cursor steht hinter der fehlerhaften Datei');
+		$runner->runScheduled();
+		$this->assertSame([12], $this->deletedIds);
+	}
+
+	public function testBrokenLogInsertIsCaughtPerFile(): void {
+		$this->simulation = true;
+		$runner = $this->runner();
+		$calls = 0;
+		$this->logMapper->method('hasSimulated')->willReturnCallback(function () use (&$calls) {
+			if ($calls++ === 0) {
+				throw new \RuntimeException('DB weg');
+			}
+			return false;
+		});
+		$stats = $runner->runFull(false, null);
+		$this->assertSame(6, $stats->due);
+		$this->assertSame(1, $stats->errors);
+	}
+
+	// --- Endgültige Löschung erkannt (F2) ---------------------------------------------
+
+	public function testPermanentDeletionBlocksRootButNotOthers(): void {
+		$this->simulation = false;
+		$this->deleteResult[11] = LogEntry::STATUS_DELETED_FINAL;
+
+		$stats = $this->runner()->runFull(false, null);
+
+		$this->assertSame([21, 22, 23], $this->deletedIds, 'in A nach der ersten endgültigen Löschung nichts mehr');
+		$this->assertArrayHasKey('0000000001:000000000100', $this->blocked);
+		$this->assertSame(1, $stats->errors);
+		$this->assertSame(2, $stats->blocked);
+		$this->assertSame(LogEntry::STATUS_DELETED_FINAL, $this->logEntryFor(11)->getStatus());
+		$this->assertNull($this->logEntryFor(12), 'gesperrte Dateien werden nicht einzeln protokolliert');
+	}
+
+	public function testBlockedRootStaysBlockedInNextRun(): void {
+		$this->simulation = false;
+		$this->blocked['0000000002:000000000200'] = ['label' => 'B', 'reason' => 'x', 'at' => 1];
+		$reported = [];
+		$stats = $this->runner()->runFull(false, null, function ($root, $d, string $status) use (&$reported) {
+			$reported[$d->file->fileId] = $status;
+		});
+		$this->assertSame([11, 12, 13], $this->deletedIds);
+		$this->assertSame(LogEntry::STATUS_SKIPPED_BLOCKED, $reported[21]);
+		$this->assertSame(3, $stats->blocked);
+	}
+
+	public function testSimulationIgnoresBlock(): void {
+		$this->simulation = true;
+		$this->blocked['0000000001:000000000100'] = ['label' => 'A', 'reason' => 'x', 'at' => 1];
+		$stats = $this->runner()->runFull(false, null);
+		$this->assertSame(6, $stats->simulated);
+	}
+
+	// --- Sperre gegen parallele Läufe (F9) --------------------------------------------
+
+	public function testRunFullRefusesWhileLocked(): void {
+		$this->simulation = false;
+		$this->foreignLease = ['holder' => 'Hintergrundjob (PID 1, x)', 'token' => 'fremd', 'until' => self::NOW + 600];
+		$runner = $this->runner();
+		$this->deleter->expects($this->never())->method('delete');
+
+		$stats = $runner->runFull(false, null);
+
+		$this->assertStringContainsString('Hintergrundjob', (string)$stats->lockedBy);
+		$this->assertFalse($stats->completed);
+		$this->assertSame(0, $this->leaseReleased, 'fremde Sperre nicht freigeben');
+	}
+
+	public function testJobSkipsWhileLockedAndKeepsCursor(): void {
+		$this->budget = 3600;
+		$this->foreignLease = ['holder' => 'occ', 'token' => 'fremd', 'until' => self::NOW + 600];
+		$stats = $this->runner()->runScheduled();
+		$this->assertNotNull($stats->lockedBy);
+		$this->assertSame(0, $stats->evaluated);
+		$this->assertSame(0, $this->lastCycle);
+	}
+
+	public function testDryRunNeedsNoLock(): void {
+		$this->foreignLease = ['holder' => 'occ', 'token' => 'fremd', 'until' => self::NOW + 600];
+		$stats = $this->runner()->runFull(true, null);
+		$this->assertNull($stats->lockedBy);
+		$this->assertSame(6, $stats->due);
+	}
+
+	public function testLeaseAndContextReleasedAfterRun(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		$this->deleter->expects($this->once())->method('releaseContext');
+		$runner->runFull(false, null);
+		$this->assertSame(1, $this->leaseReleased);
+	}
+
+	public function testLeaseLostMidRunStopsDeleting(): void {
+		$this->simulation = false;
+		// erste Löschung: Sperre verlängert; zweite: inzwischen von einem anderen Lauf übernommen
+		$this->leaseLostAt = 2;
+		$runner = $this->runner();
+
+		$stats = $runner->runFull(false, null);
+
+		$this->assertSame([11], $this->deletedIds, 'nach Verlust der Sperre nichts mehr gelöscht');
+		$this->assertFalse($stats->completed);
+		$this->assertStringContainsString('verloren', (string)$stats->lockedBy);
+		$this->assertSame(0, $this->leaseReleased, 'fremde Sperre nicht freigeben');
+		$this->assertNull($this->logEntryFor(12), 'kein Fehler-Eintrag für die Datei, an der abgebrochen wurde');
+	}
+
+	public function testLeaseLostKeepsJobCursor(): void {
+		$this->simulation = false;
+		$this->budget = 3600;
+		$this->cursor = ['root' => 'team:0000000001:000000000100', 'after' => 11];
+		$this->leaseLostAt = 1;
+		$stats = $this->runner()->runScheduled();
+		$this->assertSame([], $this->deletedIds);
+		$this->assertNotNull($stats->lockedBy);
+		$this->assertSame(['root' => 'team:0000000001:000000000100', 'after' => 11], $this->cursor);
+		$this->assertSame(0, $this->lastCycle);
+	}
+
+	// --- Ausnahme im Papierkorb: Rest des Laufs angehalten (Deleter::haltReason) ------
+
+	public function testHaltedDeleterStopsTheWholeRun(): void {
+		$this->simulation = false;
+		$this->haltAfter = 12;
+		$reported = [];
+		$stats = $this->runner()->runFull(false, null, function ($root, $d, string $status) use (&$reported) {
+			$reported[$d->file->fileId] = $status;
+		});
+
+		$this->assertSame([11], $this->deletedIds, 'auch im anderen Team-Ordner nichts mehr');
+		$this->assertSame(LogEntry::STATUS_ERROR, $this->logEntryFor(12)->getStatus());
+		$this->assertSame(LogEntry::STATUS_SKIPPED_BLOCKED, $reported[21]);
+		$this->assertSame(4, $stats->blocked);
+		$this->assertNull($this->logEntryFor(13), 'angehaltene Dateien werden nicht einzeln protokolliert');
+	}
+
+	// --- „zuerst gesehen“ auch neben Upload-Zeit (Kopien): Grenze über die Datei-ID --------
+
+	public function testCopyWithInheritedUploadTimeCountsFromFirstSeen(): void {
+		$this->simulation = false;
+		$this->seenMark = 20; // höchste Datei-ID beim Update
+		$this->files = [
+			1 => [
+				// Bestand, erst jetzt im ersten 0.8-Zyklus gesehen: Upload-Zeit gilt
+				new FileRow(12, 1, 100, '__groupfolders/1/bestand', 1, 1, 1, firstSeen: self::NOW - 3600),
+				// Kopie nach dem Update: erbt upload_time 1 des Originals, noch nie gesehen
+				new FileRow(21, 1, 100, '__groupfolders/1/kopie', 1, 1, 1),
+				// nach dem Update entstanden, vor 40 Tagen zuerst gesehen – Frist 1 Tag um
+				new FileRow(22, 1, 100, '__groupfolders/1/alt', 1, 1, 1, firstSeen: self::NOW - 86400 * 40),
+				// nach dem Update entstanden, vor einer Stunde zuerst gesehen – Frist noch nicht um
+				new FileRow(23, 1, 100, '__groupfolders/1/neu', 1, 1, 1, firstSeen: self::NOW - 3600),
+			],
+			2 => [],
+		];
+
+		$this->runner()->runFull(false, null);
+
+		$this->assertSame([21], $this->recordedSeen, 'jede Datei ohne Eintrag wird vermerkt, auch mit Upload-Zeit');
+		$this->assertSame([12, 22], $this->deletedIds);
+	}
+
+	public function testCopyAppearingDuringFirstCycleIsProtected(): void {
+		// Der erste Zyklus nach dem Update verteilt sich über mehrere Job-Ausführungen; eine in
+		// dieser Zeit angelegte Kopie zählt trotzdem ab dem ersten Sehen, nicht als Bestand
+		$this->simulation = false;
+		$this->budget = 0;
+		$this->seenMark = 20;
+		$this->files = [
+			1 => [new FileRow(11, 1, 100, '__groupfolders/1/a', 1, null, 1), new FileRow(12, 1, 100, '__groupfolders/1/b', 1, null, 1)],
+			// Kopie im noch nicht gescannten Bereich (nach der ersten Ausführung angelegt) – erbt die alte Upload-Zeit
+			2 => [new FileRow(15, 2, 200, '__groupfolders/2/a', 1, null, 1), new FileRow(25, 2, 200, '__groupfolders/2/kopie', 1, 1, 1)],
+		];
+		$runner = $this->runner();
+		$this->assertFalse($runner->runScheduled()->completed, 'erster Zyklus über mehrere Ausführungen');
+		$runs = 0;
+		do {
+			$stats = $runner->runScheduled();
+			$this->assertLessThan(20, ++$runs, 'Endlosschleife');
+		} while (!$stats->completed);
+
+		$this->assertSame([11, 12, 15], $this->deletedIds, 'Kopie bleibt');
+		$this->assertContains(25, $this->recordedSeen);
+	}
+
+	public function testMissingMarkIsSetAtRunStart(): void {
+		$this->simulation = false;
+		$this->seenMark = null;
+		$this->maxFileId = 500;
+		$this->runner()->runFull(false, null);
+		$this->assertSame([500], $this->markInit);
+		$this->assertSame([11, 12, 13, 21, 22, 23], $this->deletedIds, 'Bestand bis zur Grenze: Upload-Zeit');
+	}
+
+	public function testWithoutMarkPreviewTreatsFilesCautiouslyAsNew(): void {
+		$this->seenMark = null;
+		$result = $this->runner()->preview(null, 0, 100, 10.0);
+		$this->assertSame(0, $result['total'], 'ohne Grenze zählt „zuerst gesehen“ (jetzt) – nichts fällig');
+		$this->assertSame([], $this->markInit, 'Vorschau setzt nichts');
+	}
+
+	public function testDryRunDoesNotSetMark(): void {
+		$this->seenMark = null;
+		$this->runner()->runFull(true, null);
+		$this->assertSame([], $this->markInit);
+	}
+
+	// --- Web-Cron: nur System-Cron/occ löscht ----------------------------------------
+
+	public function testWebCronDoesNothing(): void {
+		$this->simulation = false;
+		$this->budget = 3600;
+		$this->cursor = ['root' => 'team:0000000001:000000000100', 'after' => 11];
+		$stats = $this->runner(false)->runScheduled();
+
+		$this->assertTrue($stats->notCli);
+		$this->assertFalse($stats->completed);
+		$this->assertSame([], $this->deletedIds);
+		$this->assertSame([], $this->logged);
+		$this->assertSame(['root' => 'team:0000000001:000000000100', 'after' => 11], $this->cursor, 'Cursor unverändert');
+		$this->assertSame(0, $this->leaseReleased, 'keine Sperre geholt');
+		$this->assertSame([], $this->blocked, 'keine Sperre gesetzt');
+	}
+
+	// --- Papierkorb-Eintrag nachträglich überschrieben (gleicher Name, gleiche Sekunde) ---
+
+	public function testLostTrashEntryIsCorrectedInLogAndBlocksRoot(): void {
+		$this->simulation = false;
+		$rootA = new RetentionRoot(RetentionRoot::KIND_TEAM, 1, 100, '__groupfolders/1', 'A', ['alice']);
+		$this->lostAfter[12] = [[$rootA, new FileRow(11, 1, 100, '__groupfolders/1/a', 1, null, 1), 'Papierkorb-Eintrag überschrieben']];
+
+		$stats = $this->runner()->runFull(false, null);
+
+		$this->assertSame([11 => 'Papierkorb-Eintrag überschrieben'], $this->markedFinal, 'früherer „deleted“-Eintrag wird berichtigt');
+		$this->assertArrayHasKey($rootA->blockKey(), $this->blocked);
+		$this->assertSame([11, 12], $this->deletedIds, 'danach nichts mehr gelöscht');
+		$this->assertSame(1, $stats->deleted, 'nur noch eine Datei zählt als in den Papierkorb verschoben');
+		$this->assertSame(1, $stats->errors);
+	}
+
+	public function testLostTrashEntryFoundAtRunEndIsCorrectedBeforeRelease(): void {
+		$this->simulation = false;
+		$rootB = new RetentionRoot(RetentionRoot::KIND_TEAM, 2, 200, '__groupfolders/2', 'B', ['bob']);
+		$order = [];
+		$runner = $this->runner();
+		$this->deleter->expects($this->once())->method('verifyRecentTrash')->willReturnCallback(function () use (&$order, $rootB) {
+			$order[] = 'verify';
+			$this->pendingLost[] = [$rootB, new FileRow(23, 2, 200, '__groupfolders/2/c', 1, null, 1), 'Papierkorb-Eintrag kurz nach dem Verschieben verschwunden'];
+		});
+		$this->deleter->method('releaseContext')->willReturnCallback(function () use (&$order) {
+			$order[] = 'release:' . count($this->markedFinal);
+		});
+
+		$stats = $runner->runFull(false, null);
+
+		$this->assertSame(['verify', 'release:1'], $order, 'erst nachprüfen und berichtigen, dann Kontext abbauen');
+		$this->assertSame([23 => 'Papierkorb-Eintrag kurz nach dem Verschieben verschwunden'], $this->markedFinal);
+		$this->assertArrayHasKey($rootB->blockKey(), $this->blocked);
+		$this->assertSame(1, $this->leaseReleased);
+		$this->assertSame(5, $stats->deleted);
+		$this->assertSame(1, $stats->errors);
+	}
+
+	public function testRunEndCheckFailingStillReleases(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		$this->deleter->method('verifyRecentTrash')->willThrowException(new \RuntimeException('DB weg'));
+		$this->deleter->expects($this->once())->method('releaseContext');
+		$runner->runFull(false, null);
+		$this->assertSame(1, $this->leaseReleased);
+	}
+
+	// --- Fehler beim Sperren verfälscht das Protokoll nicht ---
+
+	public function testFailingBlockKeepsDeletedFinalInLogAndStopsArea(): void {
+		$this->simulation = false;
+		$this->blockFails = true;
+		$this->deleteResult[11] = LogEntry::STATUS_DELETED_FINAL;
+		$reported = [];
+
+		$stats = $this->runner()->runFull(false, null, function ($root, $d, string $status) use (&$reported) {
+			$reported[$d->file->fileId] = $status;
+		});
+
+		$this->assertSame(LogEntry::STATUS_DELETED_FINAL, $this->logEntryFor(11)?->getStatus(), 'endgültige Löschung steht im Log, nicht „Interner Fehler“');
+		$this->assertSame(LogEntry::STATUS_DELETED_FINAL, $reported[11]);
+		$this->assertSame([21, 22, 23], $this->deletedIds, 'in A nichts mehr gelöscht, obwohl die Sperre nicht gespeichert wurde');
+		$this->assertSame(LogEntry::STATUS_SKIPPED_BLOCKED, $reported[12]);
+		$this->assertSame(1, $stats->errors);
+		$this->assertSame(2, $stats->blocked);
+	}
+
+	public function testFailingBlockAfterLostEntryKeepsDeletedStatusOfCurrentFile(): void {
+		$this->simulation = false;
+		$this->blockFails = true;
+		$rootA = new RetentionRoot(RetentionRoot::KIND_TEAM, 1, 100, '__groupfolders/1', 'A', ['alice']);
+		$this->lostAfter[12] = [[$rootA, new FileRow(11, 1, 100, '__groupfolders/1/a', 1, null, 1), 'Papierkorb-Eintrag überschrieben']];
+
+		$stats = $this->runner()->runFull(false, null);
+
+		$this->assertSame(LogEntry::STATUS_DELETED, $this->logEntryFor(12)?->getStatus(), 'Datei 12 liegt im Papierkorb – „deleted“ bleibt (sonst nach Wiederherstellung sofort wieder fällig)');
+		$this->assertCount(1, array_filter($this->logged, fn (LogEntry $e) => $e->getFileId() === 12), 'kein zusätzlicher Fehler-Eintrag');
+		$this->assertSame([11 => 'Papierkorb-Eintrag überschrieben'], $this->markedFinal, 'früherer Eintrag trotzdem berichtigt');
+		$this->assertSame([11, 12], $this->deletedIds);
+		$this->assertSame(1, $stats->errors);
+	}
+
+	// --- Simulation mitten im Lauf eingeschaltet (Notbremse) ---
+
+	public function testSimulationSwitchedOnDuringRunFullStopsDeleting(): void {
+		$this->simulation = false;
+		$this->simulationOnAfter = 12; // Admin: occ config:app:set folder_retention simulation_mode --value=1
+		$runner = $this->runner();
+		$reported = [];
+
+		$stats = $runner->runFull(false, null, function ($root, $d, string $status) use (&$reported) {
+			$reported[$d->file->fileId] = $status;
+		});
+
+		$this->assertSame([11, 12], $this->deletedIds, 'nach dem Umschalten nichts mehr gelöscht');
+		$this->assertSame(LogEntry::STATUS_WOULD_DELETE, $reported[13]);
+		$this->assertSame(LogEntry::MODE_SIMULATION, $this->logEntryFor(13)?->getMode(), 'ehrlich als Simulation protokolliert');
+		$this->assertSame(LogEntry::MODE_SIMULATION, $this->logEntryFor(23)?->getMode());
+		$this->assertSame(2, $stats->deleted);
+		$this->assertSame(4, $stats->simulated);
+	}
+
+	public function testSimulationSwitchedOnStopsTheJobToo(): void {
+		$this->simulation = false;
+		$this->budget = 3600;
+		$this->simulationDb = true; // nach Prozessstart (cron.php) eingeschaltet, Cache sagt noch AUS
+
+		$stats = $this->runner()->runScheduled();
+
+		$this->assertSame([], $this->deletedIds);
+		$this->assertSame(6, $stats->simulated);
+		$this->assertSame(0, $stats->deleted);
+	}
+
+	public function testSimulationSwitchIsForgottenAfterTheRun(): void {
+		$this->simulation = false;
+		$this->simulationDb = true;
+		$runner = $this->runner();
+		$runner->runFull(false, null);
+		$this->simulationDb = false; // wieder ausgeschaltet
+		$this->logged = [];
+		$runner->runFull(false, null);
+		$this->assertSame([11, 12, 13, 21, 22, 23], $this->deletedIds);
+	}
+
+	private function logEntryFor(int $fileId): ?LogEntry {
+		foreach ($this->logged as $e) {
+			if ($e->getFileId() === $fileId) {
+				return $e;
+			}
+		}
+		return null;
+	}
+}

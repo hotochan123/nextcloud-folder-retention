@@ -1,0 +1,13 @@
+vendor/
+node_modules/
+js/
+.phpunit.cache/
+dist/
+.phpunit.result.cache
+# local copy of https://apps.nextcloud.com/schema/apps/info.xsd for offline checks
+build/info.xsd
+# signing material never belongs in the repository
+*.key
+*.csr
+*.crt
+*.pem

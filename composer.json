@@ -1,0 +1,34 @@
+{
+	"name": "hotochan123/folder_retention",
+	"description": "Nextcloud app: retention periods attached to folders",
+	"license": "AGPL-3.0-or-later",
+	"type": "project",
+	"autoload": {
+		"psr-4": {
+			"OCA\\FolderRetention\\": "lib/"
+		}
+	},
+	"autoload-dev": {
+		"psr-4": {
+			"OCA\\FolderRetention\\Tests\\": "tests/",
+			"OCP\\": "vendor/nextcloud/ocp/OCP/",
+			"NCU\\": "vendor/nextcloud/ocp/NCU/"
+		}
+	},
+	"require": {
+		"php": ">=8.2"
+	},
+	"require-dev": {
+		"nextcloud/ocp": "dev-stable34",
+		"phpunit/phpunit": "^11.5"
+	},
+	"scripts": {
+		"test:unit": "phpunit -c tests/phpunit.xml"
+	},
+	"config": {
+		"platform": {
+			"php": "8.2"
+		},
+		"sort-packages": true
+	}
+}
