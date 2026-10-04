@@ -255,12 +255,21 @@ export async function toggle(key) {
 	}
 }
 
+/** Bis zu so vielen persönlichen Ordnern klappt „Alle aufklappen“ auch deren Inhalt auf */
+const EXPAND_PERSONAL_MAX = 50
+
 export async function expandAll() {
 	const roots = [...(state.children[DEFAULT_KEY] ?? [])]
-	if (state.expanded[PERSONAL_KEY]) {
-		roots.push(...(state.children[PERSONAL_KEY] ?? []))
+	const personal = state.children[PERSONAL_KEY] ?? []
+	if (personal.length > 0) {
+		state.expanded[PERSONAL_KEY] = true
+		// bei sehr vielen Konten nur die Liste zeigen, nicht jeden Ordnerbaum laden
+		if (personal.length <= EXPAND_PERSONAL_MAX) {
+			roots.push(...personal)
+		}
 	}
-	await Promise.all(roots.map(id => loadSubtree(id)))
+	// zu großer Teilbaum (truncated): wenigstens die erste Ebene; ein fehlender Ordner hält die anderen nicht auf
+	await Promise.allSettled(roots.map(async id => (await loadSubtree(id)) || loadChildren(id)))
 	for (const id of roots) {
 		for (const key of [id, ...descendantIds(id)]) {
 			if ((state.children[key] ?? []).length > 0) {

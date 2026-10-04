@@ -31,6 +31,9 @@ Preparation for the Nextcloud App Store.
 
 ### Fixed
 - Error labels in the log were white on a light background and hard to read.
+- "Expand all" also opens the personal folders (their folder trees up to 50
+  accounts), and opens at least the first level of a folder too large to load
+  at once.
 - The table of affected files no longer pushes the due date and size out of
   view when file paths are long.
 
