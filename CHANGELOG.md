@@ -30,6 +30,7 @@ Preparation for the Nextcloud App Store.
   the certificate request.
 
 ### Fixed
+- Error labels in the log were white on a light background and hard to read.
 - The table of affected files no longer pushes the due date and size out of
   view when file paths are long.
 
@@ -43,6 +44,12 @@ Preparation for the Nextcloud App Store.
   `forceLanguage` and `force_language` cannot change them, and a broken
   translation falls back to English instead of failing. The settings page
   and occ follow the language of the user.
+- The log is grouped by day and, within a day, by folder, each with the number
+  of files per status; a folder opens to its files. A status shown twice
+  ("Would delete · Simulation") is shown once, the source of the reference
+  date only when it is not the usual one, the date range sits behind
+  "Date range", and the mode filter is gone (the status says it). New
+  endpoints `/api/log/days` and `/api/log/folders`, `/api/log` takes `folder`.
 - Dates, sizes and sorting on the settings page follow the user's locale.
 - The rule objects in the API no longer carry `label` by themselves; the
   endpoints add it in the request language.

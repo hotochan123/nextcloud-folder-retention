@@ -69,6 +69,7 @@ ohne `js/` kommt der npm-Build dazu (~1 min).
 | S26 | eigene Instanz `$C-rm`: Regeln 1 Tag, Simulation aus → `occ app:remove` (ohne `--keep-data`) → neu installiert: `simulation_mode` = 1 (Uninstall-Schritt), Regeln unverändert, fällige Datei bleibt (Log `simulation:would_delete`) | Review 0.8 (Neuinstallation nach app:remove) |
 | S27 | eigene Instanz `$C-rs`: `occ app:remove`, dann genau der SQL-Block aus INSTALL.md §9 („Vollständig aufräumen“) → neu installiert: 5 Tabellen, Simulation an, beide Standardregeln „nie“, `--dry-run` ohne SQL-Fehler | Review 0.8 (Tabellen von Hand gelöscht) |
 | S31 | eigene Instanz `$C-enc`: groupfolders + `occ encryption:enable-master-key` + `groupfolders enable_encryption=true`, Team-Datei und persönliche Datei fällig, ein Lauf → beide `deleted`, Team-Datei im groupfolders-Papierkorb (dort unter NEUER fileid, `oc_group_folders_trash.file_id` = alte), keine Sperre | Review 0.8.1 (Verschlüsselung im Team-Ordner) |
+| S32 | Protokoll-Übersicht über die API: vier Einträge (Ordner mit `%`, `_`, `[` im Namen, ein Unterordner, ein Nachbarordner, ein Pfad ohne Ordner) → `/api/log?folder=` liefert je nur die direkten Dateien, `/api/log/folders` und `/api/log/days` zählen richtig | Protokoll nach Tag und Ordner (`notLike()` ohne `ESCAPE` auf SQLite) |
 
 Erwartungen sind bewusst tolerant (Datei da / im Papierkorb / irgendwo auf der Platte statt
 exakter Statusstrings), damit die 0.8.0-Umsetzung fair geprüft wird. Die Sperrmeldung erkennt

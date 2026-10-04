@@ -13,8 +13,9 @@ use OCP\IDBConnection;
  *
  * Filter (alle optional): mode (real|simulation), status (deleted|would_delete|skipped|error –
  * „error“ schließt endgültige Löschungen ein),
- * search (Teil des Pfads), from/to (Unix-Zeitstempel, einschließlich).
- * @psalm-type LogFilter = array{mode?: ?string, status?: ?string, search?: ?string, from?: ?int, to?: ?int}
+ * search (Teil des Pfads), from/to (Unix-Zeitstempel, einschließlich),
+ * folder (genau dieser Elternordner des Pfads, ohne Unterordner; '' = Pfade ohne Ordner).
+ * @psalm-type LogFilter = array{mode?: ?string, status?: ?string, search?: ?string, from?: ?int, to?: ?int, folder?: ?string}
  */
 class LogMapper extends QBMapper {
 	public function __construct(IDBConnection $db) {
@@ -74,6 +75,37 @@ class LogMapper extends QBMapper {
 		}
 	}
 
+	/**
+	 * Nur die Spalten für Tages- und Ordnerübersicht, in Blöcken, neueste zuerst.
+	 *
+	 * @param LogFilter $filter
+	 * @return \Generator<array{path: string, status: string, deleted_at: int}>
+	 */
+	public function iterateSummary(array $filter = [], int $chunk = 5000): \Generator {
+		$beforeId = null;
+		while (true) {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('id', 'path', 'status', 'deleted_at')->from($this->getTableName())
+				->orderBy('id', 'DESC')
+				->setMaxResults($chunk);
+			$this->applyFilter($qb, $filter);
+			if ($beforeId !== null) {
+				$qb->andWhere($qb->expr()->lt('id', $qb->createNamedParameter($beforeId, IQueryBuilder::PARAM_INT)));
+			}
+			$result = $qb->executeQuery();
+			$n = 0;
+			while ($row = $result->fetch()) {
+				$n++;
+				$beforeId = (int)$row['id'];
+				yield ['path' => (string)$row['path'], 'status' => (string)$row['status'], 'deleted_at' => (int)$row['deleted_at']];
+			}
+			$result->closeCursor();
+			if ($n < $chunk) {
+				return;
+			}
+		}
+	}
+
 	/** @param LogFilter $filter */
 	private function applyFilter(IQueryBuilder $qb, array $filter): void {
 		$qb->where('1 = 1');
@@ -97,6 +129,16 @@ class LogMapper extends QBMapper {
 		}
 		if (!empty($filter['to'])) {
 			$qb->andWhere($qb->expr()->lte('deleted_at', $qb->createNamedParameter($filter['to'], IQueryBuilder::PARAM_INT)));
+		}
+		// Gleiche Abgrenzung wie LogSummary::folderOf(): direkter Elternordner, keine Unterordner.
+		// NOT (… LIKE …) statt notLike(): notLike() hängt auf SQLite und Oracle kein ESCAPE an,
+		// ein Ordner mit „%“ oder „_“ im Namen zeigte sonst auch seine Unterordner.
+		if (isset($filter['folder'])) {
+			$prefix = $filter['folder'] === '' ? '' : $this->db->escapeLikeParameter($filter['folder']) . '/';
+			if ($prefix !== '') {
+				$qb->andWhere($qb->expr()->like('path', $qb->createNamedParameter($prefix . '%')));
+			}
+			$qb->andWhere('NOT (' . $qb->expr()->like('path', $qb->createNamedParameter($prefix . '%/%')) . ')');
 		}
 	}
 

@@ -79,10 +79,7 @@
 		"No connection to the server.": "Keine Verbindung zum Server.",
 		"Saving failed": "Speichern fehlgeschlagen",
 		"Log": "Protokoll",
-		"All deletions and – in simulation mode – all files that would have been deleted. Simulated hits are recorded only once per file and rule.": "Alle Löschungen und – im Simulationsmodus – alle Dateien, die gelöscht worden wären. Simulierte Treffer werden je Datei und Regel nur einmal eingetragen.",
 		"Mode": "Modus",
-		"All": "Alle",
-		"Real": "Echt",
 		"Simulation": "Simulation",
 		"Status": "Status",
 		"Deleted": "Gelöscht",
@@ -92,22 +89,16 @@
 		"From": "Von",
 		"To": "Bis",
 		"File contains": "Datei enthält",
-		"e.g. Reports or .pdf": "z. B. Protokolle oder .pdf",
 		"Refresh": "Aktualisieren",
 		"Export CSV": "CSV exportieren",
 		"Loading …": "Wird geladen …",
 		"No entries for these filters.": "Keine Einträge für diese Filter.",
 		"No entries.": "Keine Einträge.",
-		"Entries {from}–{to} of {total}": "Einträge {from}–{to} von {total}",
 		"Log of deletions": "Protokoll der Löschungen",
 		"Time": "Zeitpunkt",
 		"File": "Datei",
 		"Rule": "Regel",
 		"Reference date": "Bezugsdatum",
-		"Log pages": "Protokoll-Seiten",
-		"Previous": "Zurück",
-		"Page {page} of {pages}": "Seite {page} von {pages}",
-		"Next": "Weiter",
 		"Log could not be loaded": "Protokoll konnte nicht geladen werden",
 		"Export failed": "Export fehlgeschlagen",
 		"Skipped – locked": "Übersprungen – gesperrt",
@@ -226,6 +217,31 @@
 			"Dateien werden %n Monat nach Ablage in Nextcloud gelöscht.",
 			"Dateien werden %n Monaten nach Ablage in Nextcloud gelöscht."
 		],
-		"log.csv": "protokoll.csv"
+		"log.csv": "protokoll.csv",
+		"Deleted files and – in simulation mode – files that would be deleted, by day and folder. A simulated hit is recorded once per file and rule.": "Gelöschte Dateien und – im Simulationsmodus – Dateien, die gelöscht würden, nach Tag und Ordner. Ein simulierter Treffer wird je Datei und Regel einmal eingetragen.",
+		"Search files, e.g. Reports or .pdf": "Dateien suchen, z. B. Protokolle oder .pdf",
+		"All states": "Alle Status",
+		"Date range": "Zeitraum",
+		"Date range (active)": "Zeitraum (aktiv)",
+		"Clear dates": "Zeitraum zurücksetzen",
+		"No folder": "Ohne Ordner",
+		"Show older days": "Ältere Tage anzeigen",
+		"Show more ({shown} of {total})": "Mehr anzeigen ({shown} von {total})",
+		"_%n error_::_%n errors_": [
+			"%n Fehler",
+			"%n Fehler"
+		],
+		"_%n deleted_::_%n deleted_": [
+			"%n gelöscht",
+			"%n gelöscht"
+		],
+		"_%n would be deleted_::_%n would be deleted_": [
+			"%n würde gelöscht",
+			"%n würden gelöscht"
+		],
+		"_%n skipped_::_%n skipped_": [
+			"%n übersprungen",
+			"%n übersprungen"
+		]
 	}
 }

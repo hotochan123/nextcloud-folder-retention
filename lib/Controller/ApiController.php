@@ -7,6 +7,7 @@ namespace OCA\FolderRetention\Controller;
 use OCA\FolderRetention\AppInfo\Application;
 use OCA\FolderRetention\BackgroundJob\TagSyncJob;
 use OCA\FolderRetention\Db\LogMapper;
+use OCA\FolderRetention\Service\LogSummary;
 use OCA\FolderRetention\Service\RetentionRunner;
 use OCA\FolderRetention\Service\RootProvider;
 use OCA\FolderRetention\Service\RuleService;
@@ -43,6 +44,7 @@ class ApiController extends Controller {
 		private RootProvider $roots,
 		private RetentionRunner $runner,
 		private LogMapper $logMapper,
+		private LogSummary $logSummary,
 		private Settings $settings,
 		private IUserSession $userSession,
 		private TagService $tags,
@@ -164,16 +166,39 @@ class ApiController extends Controller {
 	}
 
 	#[FrontpageRoute(verb: 'GET', url: '/api/log')]
-	public function log(int $limit = 50, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): JSONResponse {
+	public function log(int $limit = 50, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null, ?string $folder = null): JSONResponse {
 		$limit = max(1, min(500, $limit));
 		$offset = max(0, $offset);
-		$filter = $this->logFilter($mode, $status, $search, $from, $to);
+		$filter = $this->logFilter($mode, $status, $search, $from, $to, $folder);
 		return new JSONResponse([
 			'entries' => $this->logMapper->findPage($limit, $offset, $filter),
 			'total' => $this->logMapper->count($filter),
 			'limit' => $limit,
 			'offset' => $offset,
 		]);
+	}
+
+	/**
+	 * Übersicht: Tage mit Einträgen (neueste zuerst) samt Zahlen je Statusgruppe.
+	 * Gleiche Filter wie /api/log.
+	 */
+	#[FrontpageRoute(verb: 'GET', url: '/api/log/days')]
+	public function logDays(int $limit = 10, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): JSONResponse {
+		$limit = max(1, min(100, $limit));
+		$offset = max(0, $offset);
+		return new JSONResponse($this->logSummary->days($this->logFilter($mode, $status, $search, $from, $to), $limit, $offset) + [
+			'limit' => $limit,
+			'offset' => $offset,
+		]);
+	}
+
+	/**
+	 * Übersicht: Ordner mit Einträgen samt Zahlen, für einen Tag über from/to.
+	 * Die Dateien eines Ordners liefert /api/log mit folder=<Ordner>.
+	 */
+	#[FrontpageRoute(verb: 'GET', url: '/api/log/folders')]
+	public function logFolders(?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): JSONResponse {
+		return new JSONResponse(['folders' => $this->logSummary->folders($this->logFilter($mode, $status, $search, $from, $to))]);
 	}
 
 	/**
@@ -219,10 +244,14 @@ class ApiController extends Controller {
 		return new DataDownloadResponse($csv, $name, 'text/csv; charset=utf-8');
 	}
 
-	/** @return array{mode: ?string, status: ?string, search: ?string, from: ?int, to: ?int} */
-	private function logFilter(?string $mode, ?string $status, ?string $search, ?int $from, ?int $to): array {
+	/**
+	 * folder: null = alle Ordner, '' = Pfade ohne Ordner (Abfrageparameter „folder=“)
+	 *
+	 * @return array{mode: ?string, status: ?string, search: ?string, from: ?int, to: ?int, folder?: string}
+	 */
+	private function logFilter(?string $mode, ?string $status, ?string $search, ?int $from, ?int $to, ?string $folder = null): array {
 		$search = trim((string)$search);
-		return [
+		return ($folder === null ? [] : ['folder' => mb_substr($folder, 0, 4000)]) + [
 			'mode' => in_array($mode, ['real', 'simulation'], true) ? $mode : null,
 			'status' => in_array($status, ['deleted', 'would_delete', 'skipped', 'error'], true) ? $status : null,
 			'search' => $search === '' ? null : mb_substr($search, 0, 200),

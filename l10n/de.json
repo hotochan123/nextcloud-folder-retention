@@ -4,6 +4,14 @@
             "%n Tag",
             "%n Tage"
         ],
+        "_%n deleted_::_%n deleted_": [
+            "%n gelöscht",
+            "%n gelöscht"
+        ],
+        "_%n error_::_%n errors_": [
+            "%n Fehler",
+            "%n Fehler"
+        ],
         "_%n month_::_%n months_": [
             "%n Monat",
             "%n Monate"
@@ -11,6 +19,10 @@
         "_%n of the listed files is in a subfolder with a different rule (see column “Rule”)._::_%n of the listed files are in subfolders with a different rule (see column “Rule”)._": [
             "%n der aufgeführten Dateien liegen in Unterordnern mit anderer Regel (siehe Spalte „Regel“).",
             "%n der aufgeführten Dateien liegen in Unterordnern mit anderer Regel (siehe Spalte „Regel“)."
+        ],
+        "_%n skipped_::_%n skipped_": [
+            "%n übersprungen",
+            "%n übersprungen"
         ],
         "_%n tag assignment removed._::_%n tag assignments removed._": [
             "%n Tag-Zuordnung entfernt.",
@@ -23,6 +35,10 @@
         "_%n week_::_%n weeks_": [
             "%n Woche",
             "%n Wochen"
+        ],
+        "_%n would be deleted_::_%n would be deleted_": [
+            "%n würde gelöscht",
+            "%n würden gelöscht"
         ],
         "_file becomes due in the next {days} days (including those already due)._::_files become due in the next {days} days (including those already due)._": [
             "Datei wird in den nächsten {days} Tagen fällig (bereits fällige eingeschlossen).",
@@ -83,9 +99,8 @@
         "Account is treated as personal again": "Konto wird wieder als persönlich behandelt",
         "Account not found": "Konto nicht gefunden",
         "Affected files · {title}": "Betroffene Dateien · {title}",
-        "All": "Alle",
-        "All deletions and – in simulation mode – all files that would have been deleted. Simulated hits are recorded only once per file and rule.": "Alle Löschungen und – im Simulationsmodus – alle Dateien, die gelöscht worden wären. Simulierte Treffer werden je Datei und Regel nur einmal eingetragen.",
         "All listed files are in subfolders with a different rule (see column “Rule”).": "Alle aufgeführten Dateien liegen in Unterordnern mit anderer Regel (siehe Spalte „Regel“).",
+        "All states": "Alle Status",
         "Already due": "Bereits fällig",
         "Applies to": "Gilt für",
         "Applies to all files in personal folders that are not covered by a folder rule": "Gilt für alle Dateien in persönlichen Ordnern, für die keine Ordnerregel greift",
@@ -97,12 +112,15 @@
         "Block could not be lifted": "Sperre konnte nicht aufgehoben werden",
         "Block for “{name}” lifted – the next run will delete there again": "Sperre für „{name}“ aufgehoben – der nächste Lauf löscht dort wieder",
         "blocked %d": "gesperrt %d",
+        "Clear dates": "Zeitraum zurücksetzen",
         "Collapse {name}": "{name} zuklappen",
         "Collapse all": "Alle zuklappen",
         "Counting subfolders …": "Unterordner werden gezählt …",
         "creation according to client": "Erstellung laut Client",
         "Custom period": "Eigene Frist",
         "Custom period active": "Eigene Frist aktiv",
+        "Date range": "Zeitraum",
+        "Date range (active)": "Zeitraum (aktiv)",
         "Days": "Tage",
         "Default period": "Standardfrist",
         "Default rule": "Standardregel",
@@ -114,6 +132,7 @@
         "deleted": "gelöscht",
         "Deleted": "Gelöscht",
         "deleted %d": "gelöscht %d",
+        "Deleted files and – in simulation mode – files that would be deleted, by day and folder. A simulated hit is recorded once per file and rule.": "Gelöschte Dateien und – im Simulationsmodus – Dateien, die gelöscht würden, nach Tag und Ordner. Ein simulierter Treffer wird je Datei und Regel einmal eingetragen.",
         "Deleting only with system cron or occ (background jobs run via AJAX/Webcron) – not deleted": "Löschen nur mit System-Cron bzw. occ (Hintergrundjobs laufen per AJAX/Webcron) – nicht gelöscht",
         "Deletion active.": "Löschung aktiv.",
         "Deletion blocked.": "Löschung gesperrt.",
@@ -126,8 +145,6 @@
         "due %d": "fällig %d",
         "Due files are moved to the trash daily.": "Fällige Dateien werden täglich in den Papierkorb verschoben.",
         "due since": "fällig seit",
-        "e.g. Reports or .pdf": "z. B. Protokolle oder .pdf",
-        "Entries {from}–{to} of {total}": "Einträge {from}–{to} von {total}",
         "error": "Fehler",
         "Error": "Fehler",
         "errors %d": "Fehler %d",
@@ -196,7 +213,6 @@
         "Log": "Protokoll",
         "Log could not be loaded": "Protokoll konnte nicht geladen werden",
         "Log of deletions": "Protokoll der Löschungen",
-        "Log pages": "Protokoll-Seiten",
         "log.csv": "protokoll.csv",
         "Message": "Meldung",
         "Mode": "Modus",
@@ -204,7 +220,6 @@
         "Months": "Monate",
         "Moved to the trash bin via account %1$s (trash bin/activity name %1$s as the deleting user; folder_retention deleted it)": "In den Papierkorb verschoben über Konto %1$s (Papierkorb/Aktivität nennen %1$s als Löschenden; gelöscht hat folder_retention)",
         "Never delete": "Nie löschen",
-        "Next": "Weiter",
         "Next 30 days": "Nächste 30 Tage",
         "Next 7 days": "Nächste 7 Tage",
         "Next 90 days": "Nächste 90 Tage",
@@ -214,6 +229,7 @@
         "No deletion": "Keine Löschung",
         "No entries for these filters.": "Keine Einträge für diese Filter.",
         "No entries.": "Keine Einträge.",
+        "No folder": "Ohne Ordner",
         "No lock with key %s": "Keine Sperre mit Schlüssel %s",
         "No longer due after re-checking": "Nach erneuter Prüfung nicht mehr fällig",
         "No permission – has the session expired? Reload the page.": "Keine Berechtigung – ist die Sitzung abgelaufen? Seite neu laden.",
@@ -236,7 +252,6 @@
         "Own rule": "Eigene Regel",
         "Own rule · passed on": "Eigene Regel · vererbt",
         "Own rule · this level only": "Eigene Regel · nur diese Ebene",
-        "Page {page} of {pages}": "Seite {page} von {pages}",
         "Period": "Frist",
         "Period counts from": "Frist zählt ab",
         "Period must be between 1 and %d": "Frist muss zwischen 1 und %d liegen",
@@ -249,10 +264,8 @@
         "Personal folders ({count})": "Persönliche Ordner ({count})",
         "Please enter a whole number from 1 to 3650.": "Bitte eine ganze Zahl von 1 bis 3650 eingeben.",
         "Preview could not be loaded": "Vorschau konnte nicht geladen werden",
-        "Previous": "Zurück",
         "Quota of the team folder cannot be determined (groupfolders table) – not deleted": "Quota des Team-Ordners nicht ermittelbar (groupfolders-Tabelle) – nicht gelöscht",
         "real": "echt",
-        "Real": "Echt",
         "REAL RUN: due files are moved to the trash bin.": "ECHTER LAUF: fällige Dateien werden in den Papierkorb verschoben.",
         "Reference date": "Bezugsdatum",
         "Reference date from": "Bezugsdatum aus",
@@ -276,10 +289,13 @@
         "saved": "gespeicherten",
         "Saving failed": "Speichern fehlgeschlagen",
         "scope must be inherit or here": "scope muss inherit oder here sein",
+        "Search files, e.g. Reports or .pdf": "Dateien suchen, z. B. Protokolle oder .pdf",
         "Server error (HTTP {status}).": "Serverfehler (HTTP {status}).",
         "Setting could not be saved": "Einstellung konnte nicht gespeichert werden",
         "Settings": "Einstellungen",
         "Show affected files": "Betroffene Dateien anzeigen",
+        "Show more ({shown} of {total})": "Mehr anzeigen ({shown} von {total})",
+        "Show older days": "Ältere Tage anzeigen",
         "Show the retention period as a tag on files and folders": "Frist als Tag an Dateien und Ordnern anzeigen",
         "Showing the first {count}.": "Angezeigt werden die ersten {count}.",
         "simulated %d": "simuliert %d",

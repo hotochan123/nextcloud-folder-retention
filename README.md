@@ -48,7 +48,8 @@ The full administrator guide — installation, update, downgrade, removal — is
   they are gone for good.
 - **Admin settings page** with a folder tree showing the rule that applies to
   each folder, a preview of the affected files (with the rule each match comes
-  from) and a log with filters, paging and CSV export.
+  from) and a log grouped by day and folder, with the number of affected files,
+  filters and CSV export.
 - **Optional system tags** such as "Retention: 2 weeks" on files and folders,
   so users can see the period in the file list. They are purely informative
   and do not control anything.
@@ -136,8 +137,8 @@ Switching from simulation to real deletion — and from an existing retention
 setup — in this order:
 
 1. **Watch the simulation.** Leave simulation mode on for at least one, better
-   several daily runs and read the log on the settings page (filter
-   "Simulation"). `occ folder_retention:run --dry-run` shows the current state
+   several daily runs and read the log on the settings page (status "Would
+   delete"). `occ folder_retention:run --dry-run` shows the current state
    without writing to the log.
 2. **Switch off the old deletion.** If Flow rules or the Retention app
    (files_retention) delete files on this instance, disable them first —

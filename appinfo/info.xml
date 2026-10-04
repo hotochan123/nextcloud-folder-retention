@@ -38,7 +38,7 @@ modification. A file restored from the trash bin starts a new period.
 
 ### Also included
 - Folder tree with the rule that applies to each folder, preview of the
-  affected files, a log with filters and CSV export
+  affected files, a log by day and folder with CSV export
 - Optional system tags such as "Retention: 2 weeks" on files and folders — for
   information only, they do not control anything
 - occ commands for a run (also as a dry run) and for the tags
@@ -96,7 +96,7 @@ Sync-Client mitschickt und das Jahre zurückliegen kann. Alternativ ab der letzt
 
 ### Außerdem
 - Ordnerbaum mit der jeweils geltenden Regel, Vorschau der betroffenen Dateien,
-  Protokoll mit Filtern und CSV-Export
+  Protokoll nach Tag und Ordner mit CSV-Export
 - Optionale Systemtags wie „Aufbewahrung: 2 Wochen“ an Dateien und Ordnern —
   rein informativ, sie steuern nichts
 - occ-Befehle für einen Lauf (auch als Probelauf) und für die Tags

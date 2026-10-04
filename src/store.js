@@ -345,6 +345,18 @@ export async function fetchLog(params) {
 	return data
 }
 
+/** Tage mit Einträgen (neueste zuerst) samt Zahlen je Statusgruppe */
+export async function fetchLogDays(params) {
+	const { data } = await axios.get(url('/log/days'), { params })
+	return data
+}
+
+/** Ordner mit Einträgen samt Zahlen, meist für einen Tag (from/to) */
+export async function fetchLogFolders(params) {
+	const { data } = await axios.get(url('/log/folders'), { params })
+	return data.folders
+}
+
 /** CSV-Export mit denselben Filtern; per axios, damit das CSRF-Token mitgeht */
 export async function downloadLog(params) {
 	const res = await axios.get(url('/log/export'), { params, responseType: 'blob' })

@@ -5,7 +5,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { register, unregister } from '@nextcloud/l10n'
-import { effectText, periodLabel, sourceLabel, sourceText, unblockPayload } from './format.js'
+import { baseName, countChips, effectText, folderOf, formatDay, periodLabel, sourceLabel, sourceText, unblockPayload, unusualSource } from './format.js'
 
 const de = JSON.parse(readFileSync(new URL('../l10n/.js-de.json', import.meta.url), 'utf8')).translations
 
@@ -51,6 +51,13 @@ describe('Deutsch (l10n/.js-de.json)', () => {
 		// Ordnernamen mit Sonderzeichen nicht maskieren – Vue escaped selbst
 		assert.equal(sourceText({ isOwn: false, isDefault: false, sourceId: 7 }, false, () => 'A & B <x>'), 'geerbt von A & B <x>')
 	})
+
+	test('Protokoll: Zahlen je Statusgruppe, Fehler zuerst', () => {
+		const chips = countChips({ deleted: 0, would_delete: 2, skipped: 1, error: 1 })
+		assert.deepEqual(chips.map(c => c.label), ['1 Fehler', '2 würden gelöscht', '1 übersprungen'])
+		assert.deepEqual(chips.map(c => c.tone), ['error', 'sim', 'skip'])
+		assert.equal(countChips({ deleted: 1, would_delete: 1, skipped: 0, error: 0 })[1].label, '1 würde gelöscht')
+	})
 })
 
 describe('Englisch (Quelltexte, keine Übersetzung geladen)', () => {
@@ -67,4 +74,25 @@ test('Sperre aufheben schickt nur die angezeigten Bereiche mit Zeitpunkt', () =>
 	const shown = [{ key: '5:files', label: 'Persönlich · bob', reason: 'x', at: 100 }]
 	assert.deepEqual(unblockPayload(shown), { unblock: [{ key: '5:files', at: 100 }] })
 	assert.deepEqual(unblockPayload([]), { unblock: [] })
+})
+
+test('Protokoll: Ordner und Dateiname wie LogSummary::folderOf()', () => {
+	assert.equal(folderOf('Team/Drafts/a.txt'), 'Team/Drafts')
+	assert.equal(folderOf('a.txt'), '')
+	assert.equal(baseName('Team/Drafts/a.txt'), 'a.txt')
+	assert.equal(baseName('a.txt'), 'a.txt')
+})
+
+test('Protokoll: Bezugsquelle nur bei Abweichung vom Normalfall', () => {
+	assert.equal(unusualSource('upload'), false)
+	assert.equal(unusualSource('mtime'), false)
+	for (const src of ['seen', 'restored', 'created']) {
+		assert.equal(unusualSource(src), true, src)
+	}
+})
+
+test('Protokoll: Tag ohne Zeitzonen-Verschiebung', () => {
+	// „2026-10-04“ ist ein Tag der Instanz-Zeitzone; new Date('2026-10-04') wäre UTC-Mitternacht
+	assert.match(formatDay('2026-10-04'), /4/)
+	assert.doesNotMatch(formatDay('2026-10-04'), /3/)
 })

@@ -131,3 +131,47 @@ export function formatSize(bytes) {
 export function unblockPayload(entries) {
 	return { unblock: entries.map(b => ({ key: b.key, at: b.at })) }
 }
+
+/** Direkter Elternordner eines Protokollpfads, wie LogSummary::folderOf() im Backend */
+export function folderOf(path) {
+	const i = path.lastIndexOf('/')
+	return i < 0 ? '' : path.slice(0, i)
+}
+
+export function baseName(path) {
+	return path.slice(path.lastIndexOf('/') + 1)
+}
+
+/**
+ * Bezugsquelle nur nennen, wenn sie vom Normalfall abweicht: Upload-Zeit (Frist ab Ablage) und
+ * Änderungszeit (Frist ab Änderung) ergeben sich aus der Regel.
+ */
+export function unusualSource(src) {
+	return src !== 'upload' && src !== 'mtime'
+}
+
+/** Tag „2026-10-04“ (Zeitzone der Instanz) ohne Umrechnung anzeigen */
+export function formatDay(date) {
+	const [y, m, d] = date.split('-').map(Number)
+	return new Date(y, m - 1, d).toLocaleDateString(locale(), { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+export function formatTime(ts) {
+	return ts ? new Date(ts * 1000).toLocaleTimeString(locale(), { timeStyle: 'short' }) : '–'
+}
+
+/**
+ * Zahlen je Statusgruppe als Plaketten, nur die vorhandenen.
+ *
+ * @param {{deleted: number, would_delete: number, skipped: number, error: number}} counts
+ * @return {Array<{key: string, label: string, tone: string}>}
+ */
+export function countChips(counts) {
+	const chips = [
+		['error', 'error', c => n('folder_retention', '%n error', '%n errors', c)],
+		['deleted', 'delete', c => n('folder_retention', '%n deleted', '%n deleted', c)],
+		['would_delete', 'sim', c => n('folder_retention', '%n would be deleted', '%n would be deleted', c)],
+		['skipped', 'skip', c => n('folder_retention', '%n skipped', '%n skipped', c)],
+	]
+	return chips.filter(([key]) => counts[key] > 0).map(([key, tone, label]) => ({ key, tone, label: label(counts[key]) }))
+}
