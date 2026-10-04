@@ -28,13 +28,15 @@ final class FileRow {
 		 * "first seen" also counts alongside upload_time. null = not passed (only without upload_time)
 		 */
 		public readonly ?int $seenMaxFileId = null,
+		/** oc_filecache.etag – changes with every content change, even if a client keeps the mtime */
+		public readonly string $etag = '',
 	) {
 	}
 
 	/** Copy with "first seen" and last deletion (both come from the app's own tables) */
 	public function with(?int $firstSeen, ?int $lastDeleted, ?int $seenMaxFileId = null): self {
 		return new self($this->fileId, $this->storageId, $this->parentId, $this->path, $this->mtime,
-			$this->creationTime, $this->uploadTime, $this->size, $this->isFolder, $firstSeen, $lastDeleted, $seenMaxFileId);
+			$this->creationTime, $this->uploadTime, $this->size, $this->isFolder, $firstSeen, $lastDeleted, $seenMaxFileId, $this->etag);
 	}
 
 	/** Created after the update to 0.8 (new file ID, e.g. a copy)? */

@@ -241,6 +241,23 @@
 		"_%n skipped_::_%n skipped_": [
 			"%n übersprungen",
 			"%n übersprungen"
-		]
+		],
+		"Keep log entries for": "Protokolleinträge aufbewahren für",
+		"Older entries are removed after each daily run. Entries about files that were moved to the trash bin stay as long as the file still exists – the app needs them so that a restored file starts its retention period anew. When an account is deleted, the entries for its personal folder are removed as well.": "Ältere Einträge werden nach jedem täglichen Lauf entfernt. Einträge zu Dateien, die in den Papierkorb verschoben wurden, bleiben, solange die Datei noch existiert – die App braucht sie, damit die Frist einer wiederhergestellten Datei neu beginnt. Wird ein Konto gelöscht, verschwinden auch die Einträge zu seinem persönlichen Ordner.",
+		"30 days": "30 Tage",
+		"3 months": "3 Monate",
+		"6 months": "6 Monate",
+		"1 year": "1 Jahr",
+		"2 years": "2 Jahre",
+		"5 years": "5 Jahre",
+		"{days} days": "{days} Tage",
+		"Maximum deletions per run": "Löschgrenze pro Lauf",
+		"0 = no limit": "0 = keine Grenze",
+		"Optional emergency brake against mass deletion, e.g. after a period set far too short on a large folder or a wrong server clock. Once a run has moved this many files to the trash bin, deletion stops until you resume it here.": "Optionale Notbremse gegen Massenlöschung, etwa nach einer viel zu kurzen Frist auf einem großen Ordner oder bei falsch gehender Serveruhr. Hat ein Lauf so viele Dateien in den Papierkorb verschoben, wird das Löschen angehalten, bis es hier fortgesetzt wird.",
+		"While deletion is halted, due files are not deleted either. When simulation mode is switched off for the first time, everything that has accumulated is due at once – set the limit above that number (see the simulation log) or resume deletion after checking.": "Solange das Löschen angehalten ist, werden auch fällige Dateien nicht gelöscht. Beim ersten Ausschalten des Simulationsmodus ist alles Aufgelaufene auf einmal fällig – die Grenze darüber ansetzen (siehe Simulationsprotokoll) oder das Löschen nach Prüfung fortsetzen.",
+		"Deletion halted.": "Löschen angehalten.",
+		"On {date}, a run reached the limit of {limit} deletions per run. Nothing is deleted until you resume – check the log (status “Deleted”) and the rules first.": "Am {date} hat ein Lauf die Grenze von {limit} Löschungen pro Lauf erreicht. Bis zum Fortsetzen wird nichts gelöscht – vorher Protokoll (Status „Gelöscht“) und Regeln prüfen.",
+		"Resume deletion": "Löschen fortsetzen",
+		"Deletion resumed – the next run deletes again": "Löschen fortgesetzt – der nächste Lauf löscht wieder"
 	}
 }

@@ -169,6 +169,121 @@ class LogMapper extends QBMapper {
 	}
 
 	/**
+	 * The newest entry of this file ID, if it reports exactly the same again (mode, status, rule,
+	 * message) – e.g. the same error every night. The caller then moves its time forward instead
+	 * of adding a row per run.
+	 *
+	 * @return int|null id of that entry
+	 */
+	public function findRepeat(int $fileId, string $mode, string $status, ?string $ruleLabel, ?string $message): ?int {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('id', 'mode', 'status', 'rule_label', 'message')->from($this->getTableName())
+			->where($qb->expr()->eq('file_id', $qb->createNamedParameter($fileId, IQueryBuilder::PARAM_INT)))
+			->orderBy('id', 'DESC')
+			->setMaxResults(1);
+		$result = $qb->executeQuery();
+		$row = $result->fetch();
+		$result->closeCursor();
+		if ($row === false
+			|| $row['mode'] !== $mode
+			|| $row['status'] !== $status
+			|| (string)$row['rule_label'] !== (string)$ruleLabel
+			|| (string)$row['message'] !== (string)$message) {
+			return null;
+		}
+		return (int)$row['id'];
+	}
+
+	/** Moves an entry to a new time (repeated report, see findRepeat) */
+	public function touch(int $id, int $at): void {
+		$qb = $this->db->getQueryBuilder();
+		$qb->update($this->getTableName())
+			->set('deleted_at', $qb->createNamedParameter($at, IQueryBuilder::PARAM_INT))
+			->where($qb->expr()->eq('id', $qb->createNamedParameter($id, IQueryBuilder::PARAM_INT)));
+		$qb->executeStatement();
+	}
+
+	/**
+	 * Deletes entries older than $cutoff. Kept regardless of age: real deletions ("deleted") whose
+	 * file still exists in the file cache – in the trash bin or restored from it. lastDeleted()
+	 * needs them: after a restore the retention period counts from the restore, without the entry
+	 * the file would be due again immediately. Once the file is gone for good, they go too.
+	 *
+	 * @return int number of deleted entries
+	 */
+	public function purgeOlderThan(int $cutoff, int $chunk = 1000): int {
+		$purged = 0;
+		$afterId = 0;
+		while (true) {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('id', 'file_id', 'mode', 'status')->from($this->getTableName())
+				->where($qb->expr()->lt('deleted_at', $qb->createNamedParameter($cutoff, IQueryBuilder::PARAM_INT)))
+				->andWhere($qb->expr()->gt('id', $qb->createNamedParameter($afterId, IQueryBuilder::PARAM_INT)))
+				->orderBy('id', 'ASC')
+				->setMaxResults($chunk);
+			$result = $qb->executeQuery();
+			$rows = $result->fetchAll();
+			$result->closeCursor();
+			if ($rows === []) {
+				return $purged;
+			}
+			$afterId = (int)$rows[count($rows) - 1]['id'];
+
+			$isRealDeletion = static fn (array $row): bool => $row['mode'] === LogEntry::MODE_REAL && $row['status'] === LogEntry::STATUS_DELETED;
+			$existing = $this->existingFileIds(array_map(
+				static fn (array $row): int => (int)$row['file_id'],
+				array_filter($rows, $isRealDeletion),
+			));
+			$ids = [];
+			foreach ($rows as $row) {
+				if (!($isRealDeletion($row) && isset($existing[(int)$row['file_id']]))) {
+					$ids[] = (int)$row['id'];
+				}
+			}
+			if ($ids !== []) {
+				$qb = $this->db->getQueryBuilder();
+				$qb->delete($this->getTableName())
+					->where($qb->expr()->in('id', $qb->createNamedParameter($ids, IQueryBuilder::PARAM_INT_ARRAY)));
+				$purged += $qb->executeStatement();
+			}
+			if (count($rows) < $chunk) {
+				return $purged;
+			}
+		}
+	}
+
+	/**
+	 * All entries of one storage – the home storage of a deleted account.
+	 *
+	 * @return int number of deleted entries
+	 */
+	public function deleteByStorage(int $storageId): int {
+		$qb = $this->db->getQueryBuilder();
+		$qb->delete($this->getTableName())
+			->where($qb->expr()->eq('storage_id', $qb->createNamedParameter($storageId, IQueryBuilder::PARAM_INT)));
+		return $qb->executeStatement();
+	}
+
+	/**
+	 * @param array<int> $fileIds
+	 * @return array<int, true> those of $fileIds that are in the file cache
+	 */
+	private function existingFileIds(array $fileIds): array {
+		$out = [];
+		foreach (array_chunk(array_values(array_unique($fileIds)), 1000) as $chunk) {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('fileid')->from('filecache')
+				->where($qb->expr()->in('fileid', $qb->createNamedParameter($chunk, IQueryBuilder::PARAM_INT_ARRAY)));
+			$result = $qb->executeQuery();
+			while (($id = $result->fetchOne()) !== false) {
+				$out[(int)$id] = true;
+			}
+			$result->closeCursor();
+		}
+		return $out;
+	}
+
+	/**
 	 * Retroactively mark as permanently deleted: the file was considered moved to the trash bin
 	 * (status deleted), but its trash bin entry has been lost. Applies to
 	 * the newest real "deleted" entry for this file ID.

@@ -290,4 +290,41 @@ class SettingsTest extends TestCase {
 		$this->assertFalse($settings->isSimulation(), 'Vorbedingung: Cache sagt AUS');
 		$this->assertSame($expected, $settings->isSimulationFresh());
 	}
+
+	public function testLogRetentionDefaultsToOneYearAndIsClamped(): void {
+		$this->assertSame(365, $this->settings()->logRetentionDays());
+		$this->values['log_retention_days'] = 1;
+		$this->assertSame(30, $this->settings()->logRetentionDays(), 'occ value below the shortest choice');
+		$this->values['log_retention_days'] = 99999;
+		$this->assertSame(1825, $this->settings()->logRetentionDays());
+	}
+
+	public function testLogRetentionAcceptsOnlyTheChoices(): void {
+		$settings = $this->settings();
+		$settings->setLogRetentionDays(90);
+		$this->assertSame(90, $settings->logRetentionDays());
+		$this->expectException(\InvalidArgumentException::class);
+		$settings->setLogRetentionDays(7);
+	}
+
+	public function testDeletionLimitIsOffByDefaultAndRejectsNegatives(): void {
+		$settings = $this->settings();
+		$this->assertSame(0, $settings->deletionLimit());
+		$settings->setDeletionLimit(500);
+		$this->assertSame(500, $settings->deletionLimit());
+		$this->expectException(\InvalidArgumentException::class);
+		$settings->setDeletionLimit(-1);
+	}
+
+	public function testResumeClearsHaltAndCycleCount(): void {
+		$settings = $this->settings();
+		$settings->setCycleDeleted(500);
+		$settings->haltDeletion(500, 1234);
+		$this->assertSame(['at' => 1234, 'limit' => 500], $settings->deletionHalt());
+
+		$settings->resumeDeletion();
+
+		$this->assertNull($settings->deletionHalt());
+		$this->assertSame(0, $settings->cycleDeleted(), 'otherwise the next run would halt again at once');
+	}
 }

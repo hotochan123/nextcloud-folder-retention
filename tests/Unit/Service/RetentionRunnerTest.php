@@ -109,6 +109,14 @@ class RetentionRunnerTest extends TestCase {
 	private ?int $haltAfter = null;
 	private ?string $halted = null;
 	private FirstSeen&MockObject $firstSeen;
+	/** Settings::deletionLimit, 0 = none */
+	private int $deletionLimit = 0;
+	/** Settings::cycleDeleted (persisted between job chunks) */
+	private int $cycleDeleted = 0;
+	/** @var array{at: int, limit: int}|null Settings::deletionHalt */
+	private ?array $halt = null;
+	/** @var list<int> log entry IDs (index + 1 in $logged) moved via LogMapper::touch */
+	private array $touched = [];
 
 	private function runner(bool $cli = true): RetentionRunner {
 		$rootA = new RetentionRoot(RetentionRoot::KIND_TEAM, 1, 100, '__groupfolders/1', 'A', ['alice']);
@@ -184,6 +192,15 @@ class RetentionRunnerTest extends TestCase {
 			$this->markInit[] = $id;
 			$this->seenMark ??= max(1, $id);
 		});
+		$this->settings->method('deletionLimit')->willReturnCallback(fn () => $this->deletionLimit);
+		$this->settings->method('cycleDeleted')->willReturnCallback(fn () => $this->cycleDeleted);
+		$this->settings->method('setCycleDeleted')->willReturnCallback(function (int $n) {
+			$this->cycleDeleted = $n;
+		});
+		$this->settings->method('deletionHalt')->willReturnCallback(fn () => $this->halt);
+		$this->settings->method('haltDeletion')->willReturnCallback(function (int $limit, int $at) {
+			$this->halt = ['at' => $at, 'limit' => $limit];
+		});
 		$this->settings->method('isRootBlocked')->willReturnCallback(fn (string $key) => isset($this->blocked[$key]));
 		$this->settings->method('blockRoot')->willReturnCallback(function (string $key, string $label, string $reason, int $at) {
 			if ($this->blockFails) {
@@ -246,6 +263,24 @@ class RetentionRunnerTest extends TestCase {
 			$this->loggedIds[] = $e->getFileId();
 			$this->logged[] = $e;
 			return $e;
+		});
+		// like the SQL query: newest entry of the file, if it says exactly the same; ID = index + 1
+		$this->logMapper->method('findRepeat')->willReturnCallback(function (int $id, string $mode, string $status, ?string $label, ?string $message) {
+			$last = null;
+			foreach ($this->logged as $i => $e) {
+				if ($e->getFileId() === $id) {
+					$last = $i;
+				}
+			}
+			if ($last === null) {
+				return null;
+			}
+			$e = $this->logged[$last];
+			return $e->getMode() === $mode && $e->getStatus() === $status && $e->getRuleLabel() === $label && $e->getMessage() === $message ? $last + 1 : null;
+		});
+		$this->logMapper->method('touch')->willReturnCallback(function (int $id, int $at) {
+			$this->logged[$id - 1]->setDeletedAt($at);
+			$this->touched[] = $id;
 		});
 		$this->logMapper->method('lastDeleted')->willReturnCallback(
 			fn (array $ids) => array_intersect_key($this->lastDeleted, array_flip($ids)));
@@ -964,6 +999,116 @@ class RetentionRunnerTest extends TestCase {
 		$this->logged = [];
 		$runner->runFull(false, null);
 		$this->assertSame([11, 12, 13, 21, 22, 23], $this->deletedIds);
+	}
+
+	// --- Content changed with the same mtime (client keeps it on upload) ------------
+
+	public function testSizeChangedSinceScanIsSkipped(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		$this->freshRows[12] = new FileRow(12, 1, 100, '__groupfolders/1/b', 1, null, 1, 99);
+
+		$runner->runFull(false, null);
+
+		$this->assertNotContains(12, $this->deletedIds);
+		$this->assertSame(LogEntry::STATUS_SKIPPED_CHANGED, $this->logEntryFor(12)->getStatus());
+	}
+
+	public function testEtagChangedSinceScanIsSkipped(): void {
+		$this->simulation = false;
+		$runner = $this->runner();
+		$this->freshRows[12] = new FileRow(12, 1, 100, '__groupfolders/1/b', 1, null, 1, etag: 'neu');
+
+		$runner->runFull(false, null);
+
+		$this->assertNotContains(12, $this->deletedIds);
+		$this->assertSame(LogEntry::STATUS_SKIPPED_CHANGED, $this->logEntryFor(12)->getStatus());
+	}
+
+	// --- Repeated reports ----------------------------------------------------------
+
+	public function testRepeatedErrorMovesEntryInsteadOfAddingOne(): void {
+		$this->simulation = false;
+		$this->deleteResult[11] = LogEntry::STATUS_ERROR;
+
+		$this->runner()->runFull(false, null);
+		$this->runner()->runFull(false, null);
+
+		$this->assertCount(1, array_filter($this->logged, fn (LogEntry $e) => $e->getFileId() === 11), 'one entry per error, not one per run');
+		$this->assertSame([1], $this->touched);
+	}
+
+	public function testDifferentErrorGetsItsOwnEntry(): void {
+		$this->simulation = false;
+		$this->deleteResult[11] = LogEntry::STATUS_ERROR;
+		$this->runner()->runFull(false, null);
+		$this->deleteResult[11] = LogEntry::STATUS_SKIPPED_LOCKED;
+		$this->runner()->runFull(false, null);
+
+		$this->assertCount(2, array_filter($this->logged, fn (LogEntry $e) => $e->getFileId() === 11));
+		$this->assertSame([], $this->touched);
+	}
+
+	// --- Deletion limit (optional emergency brake) -----------------------------------
+
+	public function testDeletionLimitHaltsTheRunAndLaterRuns(): void {
+		$this->simulation = false;
+		$this->deletionLimit = 2;
+		$reported = [];
+		$stats = $this->runner()->runFull(false, null, function ($root, $d, string $status) use (&$reported) {
+			$reported[$d->file->fileId] = $status;
+		});
+
+		$this->assertSame([11, 12], $this->deletedIds);
+		$this->assertSame(['at' => self::NOW, 'limit' => 2], $this->halt);
+		$this->assertSame(LogEntry::STATUS_SKIPPED_BLOCKED, $reported[13]);
+		$this->assertSame(4, $stats->blocked);
+		$this->assertNull($this->logEntryFor(13), 'held-back files are not logged one by one');
+
+		$this->runner()->runFull(false, null);
+		$this->assertSame([11, 12], $this->deletedIds, 'nothing more until an admin resumes');
+	}
+
+	public function testDeletionLimitCountsAcrossJobChunks(): void {
+		$this->simulation = false;
+		$this->budget = 0; // one file per job execution
+		$this->deletionLimit = 3;
+		$runner = $this->runner();
+
+		$runs = 0;
+		do {
+			$stats = $runner->runScheduled();
+			$this->assertLessThan(20, ++$runs);
+		} while (!$stats->completed);
+
+		$this->assertSame([11, 12, 13], $this->deletedIds);
+		$this->assertNotNull($this->halt);
+		$this->assertSame(0, $this->cycleDeleted, 'count reset at the end of the cycle');
+	}
+
+	public function testNewCycleStartsCountingAnew(): void {
+		$this->simulation = false;
+		$this->budget = 1000;
+		$this->deletionLimit = 3;
+		$this->cycleDeleted = 3; // left over from an aborted earlier cycle
+
+		$this->runner()->runScheduled();
+
+		$this->assertSame([11, 12, 13], $this->deletedIds);
+	}
+
+	public function testSimulationIgnoresDeletionLimit(): void {
+		$this->deletionLimit = 1;
+		$stats = $this->runner()->runFull(false, null);
+		$this->assertSame(6, $stats->simulated);
+		$this->assertNull($this->halt);
+	}
+
+	public function testWithoutLimitNothingIsHalted(): void {
+		$this->simulation = false;
+		$this->runner()->runFull(false, null);
+		$this->assertCount(6, $this->deletedIds);
+		$this->assertNull($this->halt);
 	}
 
 	private function logEntryFor(int $fileId): ?LogEntry {

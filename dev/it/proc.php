@@ -14,6 +14,9 @@
 //       two runs in the same process (like occ background-job:worker): in the first, the
 //       locking backend throws an exception when locking the trash bin target (Trashbin::move2trash),
 //       in the second it no longer does – same file again. Output: "a=<status> b=<status> | <message b>"
+//   php proc.php repeat <fileid>
+//       LogMapper::findRepeat/touch against the real database: an entry without a message,
+//       the same report again, a different one. Output: "same=<id|-> other=<id|-> moved=<0|1>"
 declare(strict_types=1);
 
 require_once '/var/www/html/lib/base.php';
@@ -113,6 +116,28 @@ switch ($argv[1] ?? '') {
 			$deleter->releaseContext();
 		}
 		echo 'a=' . $out[0][0] . ' b=' . $out[1][0] . ' | ' . str_replace("\n", ' ', (string)$out[1][1]) . "\n";
+		break;
+	case 'repeat':
+		$mapper = \OCP\Server::get(\OCA\FolderRetention\Db\LogMapper::class);
+		$e = new \OCA\FolderRetention\Db\LogEntry();
+		$e->setFileId((int)$argv[2]);
+		$e->setStorageId(1);
+		$e->setPath('s35-repeat.txt');
+		$e->setRuleLabel('s35');
+		$e->setReferenceDate(1);
+		$e->setReferenceSource('upload');
+		$e->setDeletedAt(100);
+		$e->setMode('real');
+		$e->setStatus('error');
+		$e->setMessage(null);
+		$mapper->insert($e);
+		$same = $mapper->findRepeat((int)$argv[2], 'real', 'error', 's35', null);
+		$other = $mapper->findRepeat((int)$argv[2], 'real', 'error', 's35', 'andere Meldung');
+		if ($same !== null) {
+			$mapper->touch($same, 200);
+		}
+		$moved = $same !== null && $mapper->findPage(1, 0, ['search' => 's35-repeat'])[0]->getDeletedAt() === 200;
+		echo 'same=' . ($same === $e->getId() ? 'id' : '-') . ' other=' . ($other ?? '-') . ' moved=' . ($moved ? 1 : 0) . "\n";
 		break;
 	default:
 		fwrite(STDERR, "unbekannter Modus\n");

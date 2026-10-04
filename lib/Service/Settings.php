@@ -30,6 +30,12 @@ class Settings {
 	private const LOCK_TABLE = 'folder_retention_lock';
 	private const BLOCK_TABLE = 'folder_retention_block';
 	private const RUN_LOCK = 'run';
+	/** Selectable log retention in days, ascending; the settings UI offers exactly these */
+	public const LOG_RETENTION_CHOICES = [30, 90, 180, 365, 730, 1825];
+	public const LOG_RETENTION_DEFAULT = 365;
+	public const DELETION_LIMIT_MAX = 1000000;
+	private const CYCLE_DELETED = 'cycle_deleted';
+	private const DELETION_HALT = 'deletion_halt';
 
 	public function __construct(
 		private IAppConfig $appConfig,
@@ -90,6 +96,72 @@ class Settings {
 
 	public function setTagsEnabled(bool $on): void {
 		$this->appConfig->setValueBool(Application::APP_ID, Application::CONFIG_TAGS, $on);
+	}
+
+	/**
+	 * Days the log keeps its entries (LogRetention::purge). A value set via occ outside
+	 * LOG_RETENTION_CHOICES is clamped into its range – never below the shortest choice.
+	 */
+	public function logRetentionDays(): int {
+		$days = $this->appConfig->getValueInt(Application::APP_ID, Application::CONFIG_LOG_RETENTION, self::LOG_RETENTION_DEFAULT);
+		$choices = self::LOG_RETENTION_CHOICES;
+		return max($choices[0], min($choices[count($choices) - 1], $days));
+	}
+
+	/**
+	 * Optional emergency brake: at most this many real deletions per cycle, 0 = no limit (default).
+	 * Reaching it halts deletion until an admin resumes it (deletionHalt()).
+	 */
+	public function deletionLimit(): int {
+		return max(0, $this->appConfig->getValueInt(Application::APP_ID, Application::CONFIG_DELETION_LIMIT, 0));
+	}
+
+	/** @throws \InvalidArgumentException for a negative or absurdly large value */
+	public function setDeletionLimit(int $limit): void {
+		if ($limit < 0 || $limit > self::DELETION_LIMIT_MAX) {
+			throw new \InvalidArgumentException('deletion limit must be between 0 and ' . self::DELETION_LIMIT_MAX);
+		}
+		$this->appConfig->setValueInt(Application::APP_ID, Application::CONFIG_DELETION_LIMIT, $limit);
+	}
+
+	/** Real deletions so far in the current cycle (the job works in chunks across processes) */
+	public function cycleDeleted(): int {
+		return max(0, $this->appConfig->getValueInt(Application::APP_ID, self::CYCLE_DELETED, 0));
+	}
+
+	public function setCycleDeleted(int $n): void {
+		$this->appConfig->setValueInt(Application::APP_ID, self::CYCLE_DELETED, max(0, $n));
+	}
+
+	/**
+	 * Set when a run reached the deletion limit: nothing is deleted until an admin resumes.
+	 *
+	 * @return array{at: int, limit: int}|null
+	 */
+	public function deletionHalt(): ?array {
+		$raw = json_decode($this->appConfig->getValueString(Application::APP_ID, self::DELETION_HALT, ''), true);
+		if (!is_array($raw) || !isset($raw['at'], $raw['limit'])) {
+			return null;
+		}
+		return ['at' => (int)$raw['at'], 'limit' => (int)$raw['limit']];
+	}
+
+	public function haltDeletion(int $limit, int $at): void {
+		$this->appConfig->setValueString(Application::APP_ID, self::DELETION_HALT, json_encode(['at' => $at, 'limit' => $limit]));
+	}
+
+	/** Resume after the limit was reached: the count for the current cycle starts anew */
+	public function resumeDeletion(): void {
+		$this->appConfig->deleteKey(Application::APP_ID, self::DELETION_HALT);
+		$this->setCycleDeleted(0);
+	}
+
+	/** @throws \InvalidArgumentException for a value outside LOG_RETENTION_CHOICES */
+	public function setLogRetentionDays(int $days): void {
+		if (!in_array($days, self::LOG_RETENTION_CHOICES, true)) {
+			throw new \InvalidArgumentException('log retention must be one of ' . implode(', ', self::LOG_RETENTION_CHOICES));
+		}
+		$this->appConfig->setValueInt(Application::APP_ID, Application::CONFIG_LOG_RETENTION, $days);
 	}
 
 	/**

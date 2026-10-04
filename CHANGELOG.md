@@ -28,9 +28,25 @@ Preparation for the Nextcloud App Store.
   translations, leaves source maps out, and signs the release when the key
   and the certificate are present; `scripts/certificate.sh` creates the key and
   the certificate request.
+- Log retention: entries older than a selectable period (30 days to 5 years,
+  default 1 year; app config `log_retention_days`) are removed after each
+  daily cycle. Real deletions of files that still exist (in the trash bin or
+  restored) stay, because a restored file starts its period from the restore.
+  "First seen" entries of files that no longer exist are removed as well.
+- Deleting an account removes its log entries (its personal folder) and its
+  work-space marking.
+- Optional deletion limit (emergency brake, app config `deletion_limit`, off
+  by default): once a cycle has moved that many files to the trash bin,
+  deletion halts until an admin resumes it on the settings page. Guards
+  against a period set far too short on a large folder or a wrong server
+  clock.
 
 ### Fixed
 - Error labels in the log were white on a light background and hard to read.
+- The check right before a deletion also compares size and etag, not only the
+  modification time: a client can upload new content and keep the old mtime.
+- The same error or skip reason for a file is no longer added to the log on
+  every nightly run; the existing entry moves to the latest occurrence.
 - "Expand all" also opens the personal folders (their folder trees up to 50
   accounts), and opens at least the first level of a folder too large to load
   at once.

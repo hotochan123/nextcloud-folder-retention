@@ -82,12 +82,14 @@ The app is built so that a mistake costs a trip to the trash bin, not data.
   and shows a banner instead.
 - **Fresh check before each deletion.** Location, rule and date are resolved
   again right before a file is moved; a file moved or changed in the meantime
-  is skipped. Files ending in `.part` and folders are never deleted; shares are
+  (modification time, size or etag) is skipped. Files ending in `.part` and folders are never deleted; shares are
   evaluated through the owner, never deleted through a share mount.
 - **Quota-aware.** If the trash bin would purge the file at once because of
   quota or `trashbin_size`, the file stays.
 - **Restores are respected.** A file restored from the trash bin starts a new
   period from the moment the app sees it again.
+- **Optional deletion limit.** At most this many files per run; reaching it
+  halts deletion until an admin resumes it.
 - **One run at a time.** `occ folder_retention:run` and the background job share
   a lease; switching simulation on takes effect even in a run that is already
   going.
@@ -127,8 +129,10 @@ Everything is in **Administration settings → Folder Retention**:
    --dry-run`.
 5. Optionally switch on the retention tags.
 
-Settings stored in the app config: `simulation_mode` (boolean) and
-`job_time_budget` (seconds per background job call). Details:
+Settings stored in the app config: `simulation_mode` (boolean),
+`log_retention_days` (30, 90, 180, 365, 730 or 1825; default 365),
+`deletion_limit` (files per run, 0 = no limit) and `job_time_budget` (seconds
+per background job call). Details:
 [`INSTALL.md`](INSTALL.md#4-set-up).
 
 ## Migration

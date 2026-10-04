@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\AppInfo;
 
 use OCA\FolderRetention\Listener\NodeTagListener;
+use OCA\FolderRetention\Listener\UserDeletedListener;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
@@ -12,6 +13,7 @@ use OCP\AppFramework\Bootstrap\IRegistrationContext;
 use OCP\Files\Events\Node\NodeCopiedEvent;
 use OCP\Files\Events\Node\NodeCreatedEvent;
 use OCP\Files\Events\Node\NodeRenamedEvent;
+use OCP\User\Events\BeforeUserDeletedEvent;
 
 class Application extends App implements IBootstrap {
 	public const APP_ID = 'folder_retention';
@@ -20,6 +22,8 @@ class Application extends App implements IBootstrap {
 	public const CONFIG_SIMULATION = 'simulation_mode';
 	public const CONFIG_INCLUDE_PERSONAL = 'default_applies_to_personal';
 	public const CONFIG_TAGS = 'tags_enabled';
+	public const CONFIG_LOG_RETENTION = 'log_retention_days';
+	public const CONFIG_DELETION_LIMIT = 'deletion_limit';
 
 	public function __construct(array $urlParams = []) {
 		parent::__construct(self::APP_ID, $urlParams);
@@ -29,6 +33,7 @@ class Application extends App implements IBootstrap {
 		$context->registerEventListener(NodeCreatedEvent::class, NodeTagListener::class);
 		$context->registerEventListener(NodeCopiedEvent::class, NodeTagListener::class);
 		$context->registerEventListener(NodeRenamedEvent::class, NodeTagListener::class);
+		$context->registerEventListener(BeforeUserDeletedEvent::class, UserDeletedListener::class);
 	}
 
 	public function boot(IBootContext $context): void {

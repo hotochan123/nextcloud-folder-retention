@@ -143,7 +143,10 @@
         "unblock expects a list of the locks to lift ({key, at}) – please reload the page": "unblock erwartet eine Liste der aufzuhebenden Sperren ({key, at}) – Seite bitte neu laden",
         "unlimited": "unbegrenzt",
         "would delete": "würde löschen",
-        "“%s”": "„%s“"
+        "“%s”": "„%s“",
+        "Invalid log retention": "Ungültige Aufbewahrungsdauer für das Protokoll",
+        "Invalid deletion limit": "Ungültige Löschgrenze",
+        "Deletion halted: limit of %d deletions per run reached – resume it in the settings": "Löschen angehalten: Grenze von %d Löschungen pro Lauf erreicht – in den Einstellungen fortsetzen"
     },
     "pluralForm": "nplurals=2; plural=(n != 1);"
 }

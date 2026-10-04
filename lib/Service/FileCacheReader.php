@@ -84,7 +84,7 @@ class FileCacheReader {
 	}
 
 	private function selectFileRows(IQueryBuilder $qb): IQueryBuilder {
-		return $qb->select('fc.fileid', 'fc.storage', 'fc.parent', 'fc.path', 'fc.mtime', 'fc.size', 'fc.mimetype', 'fe.creation_time', 'fe.upload_time', 'fs.first_seen')
+		return $qb->select('fc.fileid', 'fc.storage', 'fc.parent', 'fc.path', 'fc.mtime', 'fc.size', 'fc.etag', 'fc.mimetype', 'fe.creation_time', 'fe.upload_time', 'fs.first_seen')
 			->from('filecache', 'fc')
 			->leftJoin('fc', 'filecache_extended', 'fe', $qb->expr()->eq('fe.fileid', 'fc.fileid'))
 			->leftJoin('fc', 'folder_retention_seen', 'fs', $qb->expr()->eq('fs.file_id', 'fc.fileid'));
@@ -103,6 +103,7 @@ class FileCacheReader {
 			(int)$row['size'],
 			(int)$row['mimetype'] === $this->folderMime(),
 			$row['first_seen'] === null ? null : (int)$row['first_seen'],
+			etag: (string)($row['etag'] ?? ''),
 		);
 	}
 
@@ -310,11 +311,11 @@ class FileCacheReader {
 	}
 
 	/**
-	 * @return array{fileid: int, storage: int, path: string, name: string, parent: int, isFolder: bool, mtime: int}|null
+	 * @return array{fileid: int, storage: int, path: string, name: string, parent: int, isFolder: bool, mtime: int, size: int, etag: string}|null
 	 */
 	public function getEntry(int $fileId): ?array {
 		$qb = $this->db->getQueryBuilder();
-		$qb->select('fileid', 'storage', 'path', 'name', 'parent', 'mimetype', 'mtime')->from('filecache')
+		$qb->select('fileid', 'storage', 'path', 'name', 'parent', 'mimetype', 'mtime', 'size', 'etag')->from('filecache')
 			->where($qb->expr()->eq('fileid', $qb->createNamedParameter($fileId, IQueryBuilder::PARAM_INT)));
 		$result = $qb->executeQuery();
 		$row = $result->fetch();
@@ -330,6 +331,8 @@ class FileCacheReader {
 			'parent' => (int)$row['parent'],
 			'isFolder' => (int)$row['mimetype'] === $this->folderMime(),
 			'mtime' => (int)$row['mtime'],
+			'size' => (int)$row['size'],
+			'etag' => (string)$row['etag'],
 		];
 	}
 

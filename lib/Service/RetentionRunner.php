@@ -29,6 +29,8 @@ class RetentionRunner {
 	private const LEASE_TTL = 15 * 60;
 	/** ... and is renewed after this many seconds at the latest */
 	private const LEASE_RENEW = 60;
+	/** Statuses whose identical repetition updates the previous log entry (see log()) */
+	private const REPEATABLE = [LogEntry::STATUS_ERROR, LogEntry::STATUS_SKIPPED_LOCKED, LogEntry::STATUS_SKIPPED_CHANGED];
 
 	public function __construct(
 		private RootProvider $roots,
@@ -66,6 +68,10 @@ class RetentionRunner {
 	private array $blockedInRun = [];
 	/** Simulation mode was switched on during the run – only simulate for the rest of the run */
 	private bool $simulationSwitched = false;
+	/** Settings::deletionLimit() for this run, 0 = none */
+	private int $deletionLimit = 0;
+	/** real deletions in earlier chunks of the same cycle (job only) */
+	private int $deletedBefore = 0;
 
 	/**
 	 * Background job: resumes at the cursor, works until the time budget is used up.
@@ -110,7 +116,10 @@ class RetentionRunner {
 					return $stats;
 				}
 				$cursor = ['root' => '', 'after' => 0];
+				$this->settings->setCycleDeleted(0);
 			}
+			$this->deletionLimit = $this->settings->deletionLimit();
+			$this->deletedBefore = $this->settings->cycleDeleted();
 			$this->ensureSeenMark();
 			$deadline = microtime(true) + $this->settings->timeBudget();
 			$ruleSet = $this->rules->snapshot();
@@ -126,12 +135,14 @@ class RetentionRunner {
 				$stoppedAt = $this->scanRoot($root, $root->rootPath, $after, $ruleSet, $deadline, $handler, $stats, $withTags, true);
 				if ($stoppedAt !== null) {
 					$this->settings->setCursor($root->key(), $stoppedAt);
+					$this->settings->setCycleDeleted($this->deletedBefore + $stats->deleted);
 					$this->logger->info('folder_retention: run interrupted – ' . $stats->summary($this->language->english()));
 					return $stats;
 				}
 			}
 
 			$this->settings->setCursor(null);
+			$this->settings->setCycleDeleted(0);
 			$this->settings->setLastCycleCompleted($now);
 			if ($withTags) {
 				$this->sweepTags($stats);
@@ -159,6 +170,8 @@ class RetentionRunner {
 		$now = $this->time->getTime();
 		$ruleSet = $this->rules->snapshot();
 		$simulate = $dryRun || $this->settings->isSimulation();
+		$this->deletionLimit = $this->settings->deletionLimit();
+		$this->deletedBefore = 0;
 
 		$handler = function (RetentionRoot $root, Decision $d) use ($ruleSet, $simulate, $dryRun, $ruleId, $now, $stats, $report) {
 			if ($ruleId !== null && $d->resolution->rule->id !== $ruleId) {
@@ -568,7 +581,9 @@ class RetentionRunner {
 		if ($row->storageId !== $d->file->storageId || $row->path !== $d->file->path) {
 			return [null, $this->language->l10n()->t('File was moved or renamed since it was evaluated')];
 		}
-		if ($row->mtime !== $d->file->mtime) {
+		// mtime alone is not enough: clients can keep it on upload (X-OC-MTime), size and etag
+		// still reveal new content
+		if ($row->mtime !== $d->file->mtime || $row->size !== $d->file->size || $row->etag !== $d->file->etag) {
 			return [null, $this->language->l10n()->t('File was modified since it was evaluated')];
 		}
 		$chain = $this->fileCache->freshChain($row->parentId, $root->rootId);
@@ -667,6 +682,13 @@ class RetentionRunner {
 			return $this->actDue($root, $d, true, false, $now, $stats);
 		}
 
+		$limitReached = $this->deletionLimitReached($stats);
+		if ($limitReached !== null) {
+			$stats->skipped++;
+			$stats->blocked++;
+			return [LogEntry::STATUS_SKIPPED_BLOCKED, $limitReached];
+		}
+
 		// Ensure the lock immediately before deleting – never two runs at the same time
 		$this->renewLease(true);
 		[$fresh, $reason] = $this->recheck($root, $d);
@@ -698,6 +720,26 @@ class RetentionRunner {
 		}
 		$this->recordLost($stats);
 		return [$status, $message];
+	}
+
+	/**
+	 * Optional emergency brake (Settings::deletionLimit): once a cycle has deleted that many files,
+	 * deletion halts – in this and every later run – until an admin resumes it. Guards against a
+	 * period set far too short on a large folder or a server clock far in the future.
+	 *
+	 * @return string|null reason why nothing more is deleted, null = carry on
+	 */
+	private function deletionLimitReached(RunStats $stats): ?string {
+		$halt = $this->settings->deletionHalt();
+		if ($halt === null && $this->deletionLimit > 0 && $this->deletedBefore + $stats->deleted >= $this->deletionLimit) {
+			$halt = ['at' => $this->time->getTime(), 'limit' => $this->deletionLimit];
+			$this->settings->haltDeletion($halt['limit'], $halt['at']);
+			$this->logger->warning('folder_retention: deletion limit of ' . $halt['limit'] . ' files per run reached – nothing more is deleted until an admin resumes deletion in the settings. ' . $stats->summary($this->language->english()));
+		}
+		if ($halt === null) {
+			return null;
+		}
+		return $this->language->l10n()->t('Deletion halted: limit of %d deletions per run reached – resume it in the settings', [$halt['limit']]);
 	}
 
 	/**
@@ -738,13 +780,23 @@ class RetentionRunner {
 
 	private function log(RetentionRoot $root, Decision $d, string $mode, string $status, ?string $message, int $at): void {
 		$rule = $d->resolution->rule;
+		$ruleLabel = $rule->logLabel($this->language->l10n());
+		// The same error or skip reason every night: move the existing entry to the latest
+		// occurrence instead of adding one per run. Deletions always get their own entry.
+		if (in_array($status, self::REPEATABLE, true)) {
+			$repeat = $this->logMapper->findRepeat($d->file->fileId, $mode, $status, $ruleLabel, $message);
+			if ($repeat !== null) {
+				$this->logMapper->touch($repeat, $at);
+				return;
+			}
+		}
 		$entry = new LogEntry();
 		$entry->setFileId($d->file->fileId);
 		$entry->setStorageId($d->file->storageId);
 		$entry->setPath(mb_substr($root->displayPath($d->file->path), 0, 4000));
 		$entry->setRuleId($rule->id);
 		$entry->setRuleFolderId($rule->folderId);
-		$entry->setRuleLabel($rule->logLabel($this->language->l10n()));
+		$entry->setRuleLabel($ruleLabel);
 		$entry->setReferenceDate($d->reference->timestamp);
 		$entry->setReferenceSource($d->reference->source);
 		$entry->setDeletedAt($at);

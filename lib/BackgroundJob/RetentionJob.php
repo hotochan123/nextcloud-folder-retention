@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FolderRetention\BackgroundJob;
 
+use OCA\FolderRetention\Service\LogRetention;
 use OCA\FolderRetention\Service\RetentionRunner;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\IJob;
@@ -20,6 +21,7 @@ class RetentionJob extends TimedJob {
 	public function __construct(
 		ITimeFactory $time,
 		private RetentionRunner $runner,
+		private LogRetention $logRetention,
 	) {
 		parent::__construct($time);
 		$this->setInterval(15 * 60);
@@ -28,6 +30,10 @@ class RetentionJob extends TimedJob {
 	}
 
 	protected function run($argument): void {
-		$this->runner->runScheduled();
+		$stats = $this->runner->runScheduled();
+		// Once per completed cycle, i.e. daily: expired log entries and orphaned "first seen" entries
+		if ($stats->completed && !$stats->notDue) {
+			$this->logRetention->purge();
+		}
 	}
 }

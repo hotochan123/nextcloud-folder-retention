@@ -50,6 +50,49 @@ class FirstSeen {
 	}
 
 	/**
+	 * Removes entries whose file is no longer in the file cache (gone for good – a file in the
+	 * trash bin keeps its entry). File IDs are not reused, such an entry can never apply again.
+	 *
+	 * @return int number of removed entries
+	 */
+	public function purgeOrphans(int $chunk = 1000): int {
+		$purged = 0;
+		$afterId = 0;
+		while (true) {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('file_id')->from('folder_retention_seen')
+				->where($qb->expr()->gt('file_id', $qb->createNamedParameter($afterId, IQueryBuilder::PARAM_INT)))
+				->orderBy('file_id', 'ASC')
+				->setMaxResults($chunk);
+			$result = $qb->executeQuery();
+			$ids = array_map('intval', $result->fetchAll(\PDO::FETCH_COLUMN));
+			$result->closeCursor();
+			if ($ids === []) {
+				return $purged;
+			}
+			$afterId = $ids[count($ids) - 1];
+
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('fileid')->from('filecache')
+				->where($qb->expr()->in('fileid', $qb->createNamedParameter($ids, IQueryBuilder::PARAM_INT_ARRAY)));
+			$result = $qb->executeQuery();
+			$existing = array_flip(array_map('intval', $result->fetchAll(\PDO::FETCH_COLUMN)));
+			$result->closeCursor();
+
+			$orphans = array_values(array_filter($ids, fn (int $id) => !isset($existing[$id])));
+			if ($orphans !== []) {
+				$qb = $this->db->getQueryBuilder();
+				$qb->delete('folder_retention_seen')
+					->where($qb->expr()->in('file_id', $qb->createNamedParameter($orphans, IQueryBuilder::PARAM_INT_ARRAY)));
+				$purged += $qb->executeStatement();
+			}
+			if (count($ids) < $chunk) {
+				return $purged;
+			}
+		}
+	}
+
+	/**
 	 * Records $now for files without an entry – batched in one transaction. Already existing
 	 * entries (parallel run, race) remain unchanged: the earlier date applies.
 	 *

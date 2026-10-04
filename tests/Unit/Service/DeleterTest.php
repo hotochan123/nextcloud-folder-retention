@@ -57,6 +57,8 @@ class DeleterTest extends TestCase {
 	private array $setups = [];
 	/** @var array<int, array{storage: int, path: string}|null> fileid → file cache entry after deletion */
 	private array $entryAfter = [];
+	/** @var array<int, int> file ID → size as evaluated (file()), what the file cache reports unless entryAfter says otherwise */
+	private array $evaluatedSizes = [];
 	/** @var array<int, bool> fileid → was delete() called */
 	private array $deleteCalled = [];
 	/** @var array<string, list<File>> uid → nodes returned by getById */
@@ -147,7 +149,7 @@ class DeleterTest extends TestCase {
 		$fileCache = $this->createMock(FileCacheReader::class);
 		$fileCache->method('getEntry')->willReturnCallback(function (int $id) {
 			$e = $this->entryAfter[$id] ?? null;
-			return $e === null ? null : ['fileid' => $id, 'storage' => $e['storage'], 'path' => $e['path'], 'name' => basename($e['path']), 'parent' => 1, 'isFolder' => false, 'mtime' => 5];
+			return $e === null ? null : ['fileid' => $id, 'storage' => $e['storage'], 'path' => $e['path'], 'name' => basename($e['path']), 'parent' => 1, 'isFolder' => false, 'mtime' => 5, 'size' => $e['size'] ?? $this->evaluatedSizes[$id] ?? 10, 'etag' => $e['etag'] ?? ''];
 		});
 		$fileCache->method('isInGroupFolderTrash')->willReturnCallback(fn (int $id) => $this->groupTrashIds[$id] ?? $this->groupTrash);
 		$fileCache->method('groupFolderTrashEntry')->willReturnCallback(fn (int $id) => $this->groupTrashRows[$id] ?? null);
@@ -222,6 +224,7 @@ class DeleterTest extends TestCase {
 	}
 
 	private function file(int $id, int $storage, string $path, int $size = 10): FileRow {
+		$this->evaluatedSizes[$id] = $size;
 		return new FileRow($id, $storage, 1, $path, 5, null, 1, $size);
 	}
 
@@ -650,6 +653,20 @@ class DeleterTest extends TestCase {
 
 		$this->assertSame(LogEntry::STATUS_SKIPPED_CHANGED, $status);
 		$this->assertStringContainsString('verschoben', (string)$message);
+		$this->assertArrayNotHasKey(1, $this->deleteCalled);
+	}
+
+	public function testNewContentAfterRecheckIsSkipped(): void {
+		$deleter = $this->deleter();
+		$f = $this->file(1, 1, 'files/a.txt');
+		$this->node('alice', $f, TestHomeMountProvider::class, 'files_trashbin/files/a.txt.d1');
+		// Overwritten after the recheck by a client that keeps the mtime – only the etag tells
+		$this->entryAfter[1] = ['storage' => 1, 'path' => 'files/a.txt', 'etag' => 'neu'];
+
+		[$status, $message] = $deleter->delete($this->homeRoot('alice', 1), $f);
+
+		$this->assertSame(LogEntry::STATUS_SKIPPED_CHANGED, $status);
+		$this->assertStringContainsString('geändert', (string)$message);
 		$this->assertArrayNotHasKey(1, $this->deleteCalled);
 	}
 

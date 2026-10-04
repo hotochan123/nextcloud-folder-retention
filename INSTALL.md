@@ -170,8 +170,8 @@ names the account ("moved to the trash bin via account bob …"): if that entry
 matches the file and the time, it was the app and not that person.
 
 Right before each deletion the app checks the file's location, rule and date
-afresh. If the file has been moved or changed in the meantime, or another rule
-applies, it is not deleted (log: "skipped — changed"); the next run evaluates
+afresh. If the file has been moved or changed in the meantime (modification time,
+size or etag), or another rule applies, it is not deleted (log: "skipped — changed"); the next run evaluates
 it again.
 
 **Safety block.** After each deletion the app checks that the file has arrived
@@ -199,6 +199,15 @@ trash bin in the same process). The file is logged as an error with "further
 deletions stopped for this run", plus a warning in the Nextcloud log; the next
 run tries again.
 
+**Deletion limit (optional).** In the settings, "Maximum deletions per run"
+caps how many files one run may move to the trash bin (0 = no limit, the
+default). When a run reaches it, deletion halts — in that run and every later
+one — with a banner at the top of the settings page and a warning in the
+Nextcloud log, until an admin clicks "Resume deletion" after checking the log
+and the rules. Simulation mode is not affected. **Mind the first live run:**
+everything that has piled up during the simulation is due at once, so set the
+limit above that number (see the simulation log) or resume after checking.
+
 If Flow rules or the "Retention" app (files_retention) still delete files on
 the instance: switch them off first, otherwise two systems delete in parallel.
 
@@ -211,7 +220,19 @@ occ folder_retention:tags [--folder=ID] [--remove] # sync or remove the tags
 
 occ config:app:set folder_retention simulation_mode --value=1 --type=boolean   # simulation on
 occ config:app:set folder_retention job_time_budget --value=120 --type=integer # seconds per job call
+occ config:app:set folder_retention log_retention_days --value=365 --type=integer # 30/90/180/365/730/1825
+occ config:app:set folder_retention deletion_limit --value=500 --type=integer   # 0 = no limit
+occ config:app:delete folder_retention deletion_halt                         # resume after the limit was reached …
+occ config:app:delete folder_retention cycle_deleted                         # … and count the current cycle anew
 ```
+
+**Log retention.** After each completed daily cycle the app removes log
+entries older than `log_retention_days` (default one year). Entries about
+real deletions stay as long as the file still exists — in the trash bin or
+restored — because a restored file starts its period from the restore; once
+the file is gone for good, its entries expire too. When an account is
+deleted, its log entries (its personal folder) and its work-space marking are
+removed right away; entries in Team folders stay.
 
 "Simulation on" also affects an `occ folder_retention:run` or job that is
 already running: before every deletion the app reads the switch afresh from

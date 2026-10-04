@@ -276,10 +276,17 @@ class ApiController extends Controller {
 	 * Switching off simulation mode triggers real deletions – hence password confirmation.
 	 * unblock = list of displayed blocks ({key, at} or just the key): lifts exactly these,
 	 * all others stay – including ones added since the page was loaded.
+	 * deletionLimit: 0 = none; resumeDeletion: continue after the limit was reached.
 	 */
 	#[PasswordConfirmationRequired]
 	#[FrontpageRoute(verb: 'PUT', url: '/api/settings')]
-	public function putSettings(?bool $simulation = null, ?bool $tags = null, mixed $unblock = null): JSONResponse {
+	public function putSettings(?bool $simulation = null, ?bool $tags = null, mixed $unblock = null, ?int $logRetentionDays = null, ?int $deletionLimit = null, ?bool $resumeDeletion = null): JSONResponse {
+		if ($deletionLimit !== null && ($deletionLimit < 0 || $deletionLimit > Settings::DELETION_LIMIT_MAX)) {
+			return new JSONResponse(['message' => $this->l->t('Invalid deletion limit')], Http::STATUS_BAD_REQUEST);
+		}
+		if ($logRetentionDays !== null && !in_array($logRetentionDays, Settings::LOG_RETENTION_CHOICES, true)) {
+			return new JSONResponse(['message' => $this->l->t('Invalid log retention')], Http::STATUS_BAD_REQUEST);
+		}
 		$unblockKeys = null;
 		if ($unblock !== null) {
 			$unblockKeys = $this->parseUnblock($unblock);
@@ -292,6 +299,15 @@ class ApiController extends Controller {
 		}
 		if ($unblockKeys !== null) {
 			$this->settings->unblockRoots($unblockKeys);
+		}
+		if ($logRetentionDays !== null) {
+			$this->settings->setLogRetentionDays($logRetentionDays);
+		}
+		if ($deletionLimit !== null) {
+			$this->settings->setDeletionLimit($deletionLimit);
+		}
+		if ($resumeDeletion === true) {
+			$this->settings->resumeDeletion();
 		}
 		if ($tags !== null && $tags !== $this->settings->tagsEnabled()) {
 			$this->settings->setTagsEnabled($tags);
@@ -361,6 +377,11 @@ class ApiController extends Controller {
 		return [
 			'simulation' => $this->settings->isSimulation(),
 			'tags' => $this->settings->tagsEnabled(),
+			'logRetentionDays' => $this->settings->logRetentionDays(),
+			'logRetentionChoices' => Settings::LOG_RETENTION_CHOICES,
+			// 0 = no limit; deletionHalt set = limit reached, nothing is deleted until resumed
+			'deletionLimit' => $this->settings->deletionLimit(),
+			'deletionHalt' => $this->settings->deletionHalt(),
 			'workspaceAccounts' => $this->settings->workspaceAccounts(),
 			'tagSyncPending' => $this->jobList->has(TagSyncJob::class, ['folderId' => null]),
 			'lastCycleCompleted' => $this->settings->lastCycleCompleted() ?: null,

@@ -1437,6 +1437,111 @@ s32() {
 	fi
 }
 
+# S33 log retention: after a completed cycle the job removes log entries older than the retention
+# period (default 365 days) – except real deletions of files that still exist (trash bin or
+# restored; the restore logic needs them) – and "first seen" entries of files that are gone.
+s33() {
+	set_sim true
+	put walter s33-kept.txt
+	local live old recent
+	live=$(fid s33-kept.txt)
+	old=$(ago 400)
+	recent=$(ago 1)
+	log33() {
+		sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status) VALUES (?, 1, ?, 's33', 1, 'upload', ?, ?, ?)" "$1" "$2" "$3" "$4" "$5"
+	}
+	log33 990101 s33-old-sim.txt "$old" simulation would_delete
+	log33 "$live" s33-old-deleted-exists.txt "$old" real deleted
+	log33 990102 s33-old-deleted-gone.txt "$old" real deleted
+	log33 990103 s33-recent-error.txt "$recent" real error
+	seen 990104 "$old"
+	seen "$live" "$old"
+
+	local job
+	job=$(sql "SELECT id FROM oc_jobs WHERE class = ?" 'OCA\FolderRetention\BackgroundJob\RetentionJob')
+	occ config:app:delete folder_retention last_cycle_completed >/dev/null 2>&1 || true
+	occ config:app:delete folder_retention job_cursor >/dev/null 2>&1 || true
+	occ background-job:execute "$job" --force-execute > "$WORK/s33.txt" 2>&1 || true
+
+	local left orphan liveSeen ok=1
+	left=$(sql "SELECT path FROM oc_folder_retention_log WHERE rule_label = 's33' ORDER BY path" | paste -sd' ')
+	orphan=$(sql "SELECT COUNT(*) FROM oc_folder_retention_seen WHERE file_id = 990104")
+	liveSeen=$(sql "SELECT COUNT(*) FROM oc_folder_retention_seen WHERE file_id = ?" "$live")
+	[[ "$left" == "s33-old-deleted-exists.txt s33-recent-error.txt" ]] || ok=0
+	[[ "$orphan" == 0 && "$liveSeen" == 1 ]] || ok=0
+	sql "DELETE FROM oc_folder_retention_log WHERE rule_label = 's33'"
+	local note="left in the log: [$left]; first seen: orphan $orphan, existing file $liveSeen"
+	if [[ $ok == 1 ]]; then
+		result PASS S33 "$note"
+	else
+		result FAIL S33 "$note; job output: $(tail -n3 "$WORK/s33.txt" | paste -sd' ')"
+	fi
+}
+
+# S34 deleting an account removes its log entries (home storage) and its workspace marking;
+# entries of other storages stay.
+s34() {
+	side_user zoe
+	put zoe s34-file.txt
+	local storage
+	storage=$(sql "SELECT numeric_id FROM oc_storages WHERE id = ?" "home::zoe")
+	[[ -n "$storage" ]] || { result FAIL S34 "Vorbedingung: Home-Speicher von zoe fehlt"; return 0; }
+	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status) VALUES (990201, ?, 'Persönlich · zoe/s34-file.txt', 's34', 1, 'upload', ?, 'simulation', 'would_delete')" "$storage" "$(now)"
+	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status) VALUES (990202, ?, 'other/s34-other.txt', 's34', 1, 'upload', ?, 'simulation', 'would_delete')" "$((storage + 100000))" "$(now)"
+	occ config:app:set folder_retention workspace_accounts --value='["zoe"]' >/dev/null
+	occ user:delete zoe > "$WORK/s34.txt" 2>&1 || true
+
+	local left ws
+	left=$(sql "SELECT path FROM oc_folder_retention_log WHERE rule_label = 's34' ORDER BY path" | paste -sd' ')
+	ws=$(occ config:app:get folder_retention workspace_accounts 2>/dev/null || true)
+	sql "DELETE FROM oc_folder_retention_log WHERE rule_label = 's34'"
+	local note="left in the log: [$left], workspace accounts: $ws"
+	if [[ "$left" == "other/s34-other.txt" && "$ws" != *zoe* ]]; then
+		result PASS S34 "$note"
+	else
+		result FAIL S34 "$note; user:delete: $(tail -n2 "$WORK/s34.txt" | paste -sd' ')"
+	fi
+}
+
+# S35 repeated reports update the existing entry (findRepeat/touch on the real database, message
+# NULL), and the optional deletion limit halts deletion until it is resumed.
+s35() {
+	local rep
+	rep=$(docker exec -u www-data "$C" php /tmp/fret-proc.php repeat 990301 2>&1 | tail -n1)
+	sql "DELETE FROM oc_folder_retention_log WHERE rule_label = 's35'"
+
+	set_sim false
+	retention_run s35-pre # whatever is still due from earlier scenarios, without a limit
+	side_user yuri
+	local n
+	for n in 1 2 3; do
+		put yuri "s35-$n.txt"
+		age "s35-$n.txt" 10
+	done
+	occ config:app:set folder_retention deletion_limit --value=2 --type=integer >/dev/null
+	retention_run s35-a
+	local first halt
+	first=$(for n in 1 2 3; do in_trash yuri "s35-$n.txt" && echo -n T || echo -n F; done)
+	halt=$(occ config:app:get folder_retention deletion_halt 2>/dev/null || true)
+	retention_run s35-b
+	local still
+	still=$(for n in 1 2 3; do in_trash yuri "s35-$n.txt" && echo -n T || echo -n F; done)
+	occ config:app:delete folder_retention deletion_halt >/dev/null
+	occ config:app:delete folder_retention cycle_deleted >/dev/null 2>&1 || true
+	retention_run s35-c
+	local resumed
+	resumed=$(for n in 1 2 3; do in_trash yuri "s35-$n.txt" && echo -n T || echo -n F; done)
+	occ config:app:delete folder_retention deletion_limit >/dev/null
+	occ config:app:delete folder_retention deletion_halt >/dev/null 2>&1 || true
+
+	local note="repeat: $rep; limit 2: run 1 $first, halt ${halt:-missing}, run 2 $still, after resuming $resumed"
+	if [[ "$rep" == "same=id other=- moved=1" && "$first" == TTF && -n "$halt" && "$still" == TTF && "$resumed" == TTT ]]; then
+		result PASS S35 "$note"
+	else
+		result FAIL S35 "$note; output run 1: $(tail -n2 "$WORK/s35-a.txt" | paste -sd' ')"
+	fi
+}
+
 # ---------------------------------------------------------------- sequence
 
 setup
@@ -1473,6 +1578,9 @@ scenario S26 s26
 scenario S27 s27
 scenario S31 s31
 scenario S32 s32
+scenario S33 s33
+scenario S34 s34
+scenario S35 s35
 
 pass=$(grep -c '^PASS ' "$RES" || true)
 fail=$(grep -c '^FAIL ' "$RES" || true)

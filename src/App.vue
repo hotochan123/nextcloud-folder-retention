@@ -34,6 +34,16 @@
 			</ul>
 		</NcNoteCard>
 
+		<NcNoteCard v-if="state.settings.deletionHalt" type="error" class="fr-banner">
+			<p>
+				<strong>{{ t('folder_retention', 'Deletion halted.') }}</strong>
+				{{ t('folder_retention', 'On {date}, a run reached the limit of {limit} deletions per run. Nothing is deleted until you resume – check the log (status “Deleted”) and the rules first.', { date: formatDate(state.settings.deletionHalt.at), limit: state.settings.deletionHalt.limit }) }}
+			</p>
+			<NcButton variant="secondary" :disabled="resuming" @click="onResume">
+				{{ t('folder_retention', 'Resume deletion') }}
+			</NcButton>
+		</NcNoteCard>
+
 		<NcLoadingIcon v-if="state.loading" :size="40" />
 		<NcNoteCard v-else-if="state.error" type="error">
 			{{ state.error }}
@@ -132,6 +142,23 @@ async function onUnblock(entry) {
 		}
 	} finally {
 		unblocking.value = false
+	}
+}
+
+const resuming = ref(false)
+
+/** After the deletion limit was reached: the next run deletes again, counting anew */
+async function onResume() {
+	resuming.value = true
+	try {
+		await updateSettings({ resumeDeletion: true })
+		showSuccess(t('folder_retention', 'Deletion resumed – the next run deletes again'))
+	} catch (e) {
+		if (!e?.cancelled) {
+			showError(e?.response?.data?.message ?? t('folder_retention', 'Setting could not be saved'))
+		}
+	} finally {
+		resuming.value = false
 	}
 }
 

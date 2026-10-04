@@ -216,6 +216,12 @@ class Deleter {
 				if ($entry === null || $entry['storage'] !== $file->storageId || $entry['path'] !== $file->path) {
 					return [LogEntry::STATUS_SKIPPED_CHANGED, $this->t('File was moved since it was evaluated')];
 				}
+				// New content with the old mtime (client sets it on upload): size or etag differ.
+				// From the file cache, not from the node – with encryption the node reports the
+				// unencrypted size
+				if ($entry['size'] !== $file->size || $entry['etag'] !== $file->etag) {
+					return [LogEntry::STATUS_SKIPPED_CHANGED, $this->t('File was modified since it was evaluated')];
+				}
 				// Without delete permission (group permissions, ACL in the team folder) File::delete throws
 				// before the trash bin is touched – try the next member, do not halt the run
 				if (!$node->isDeletable()) {
