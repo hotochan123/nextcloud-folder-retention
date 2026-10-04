@@ -18,16 +18,16 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
- * Durchläuft alle Bereiche Storage für Storage und bewertet jede Datei an ihrem
- * aktuellen Speicherort. Wird vom Job (mit Zeitbudget + Cursor), vom occ-Befehl
- * (komplett) und von der Vorschau (nur lesen) verwendet.
+ * Walks through all areas storage by storage and evaluates every file at its current
+ * location. Used by the job (with time budget + cursor), by the occ command
+ * (complete) and by the preview (read-only).
  */
 class RetentionRunner {
-	/** Frühestens nach so vielen Sekunden beginnt ein neuer Zyklus (täglich, mit etwas Spiel) */
+	/** A new cycle starts after this many seconds at the earliest (daily, with some slack) */
 	private const CYCLE_INTERVAL = 23 * 3600;
-	/** Sperre gegen parallele Läufe: läuft ohne Verlängerung nach so vielen Sekunden aus */
+	/** Lock against parallel runs: expires after this many seconds without renewal */
 	private const LEASE_TTL = 15 * 60;
-	/** … und wird spätestens nach so vielen Sekunden verlängert */
+	/** ... and is renewed after this many seconds at the latest */
 	private const LEASE_RENEW = 60;
 
 	public function __construct(
@@ -51,31 +51,31 @@ class RetentionRunner {
 	) {
 	}
 
-	/** Tag-Abgleich für diesen Lauf abgeschaltet (nach einem Fehler) */
+	/** Tag sync disabled for this run (after an error) */
 	private bool $tagsFailed = false;
-	/** gehaltene Laufsperre: Token und wann zuletzt verlängert */
+	/** held run lock: token and when it was last renewed */
 	private ?string $leaseToken = null;
 	private string $leaseHolder = '';
 	private int $leaseRenewedAt = 0;
-	/** @var array<string, true> Bereiche, deren Sperre in diesem Lauf schon gemeldet wurde */
+	/** @var array<string, true> areas whose lock has already been reported in this run */
 	private array $blockReported = [];
 	/**
-	 * @var array<string, true> Bereiche, die dieser Lauf gesperrt hat – gilt auch, wenn das
-	 *                          Speichern der Sperre in der Datenbank gescheitert ist
+	 * @var array<string, true> areas this run has locked – applies even if saving the lock
+	 *                          to the database failed
 	 */
 	private array $blockedInRun = [];
-	/** Simulation wurde während des Laufs eingeschaltet – Rest des Laufs nur noch simulieren */
+	/** Simulation mode was switched on during the run – only simulate for the rest of the run */
 	private bool $simulationSwitched = false;
 
 	/**
-	 * Hintergrundjob: setzt am Cursor fort, arbeitet bis das Zeitbudget erschöpft ist.
+	 * Background job: resumes at the cursor, works until the time budget is used up.
 	 */
 	public function runScheduled(): RunStats {
 		$stats = new RunStats();
 		if (!$this->isCli()) {
-			// AJAX/Webcron: Der Job liefe in einer anonymen Anfrage an cron.php. Deren Kopfzeile
-			// X-NC-Skip-Trashbin ließe files_trashbin endgültig löschen, und max_execution_time (oft
-			// 30 s) bräche womöglich zwischen Löschen und Protokoll ab. Nichts tun, Cursor bleibt.
+			// AJAX/Webcron: the job would run in an anonymous request to cron.php. Its header
+			// X-NC-Skip-Trashbin would make files_trashbin delete permanently, and max_execution_time
+			// (often 30 s) might abort between deleting and logging. Do nothing, cursor stays.
 			$stats->notCli = true;
 			$this->logger->info('folder_retention: background jobs run via AJAX/Webcron – retention runs only with system cron (or occ folder_retention:run)');
 			return $stats;
@@ -99,8 +99,8 @@ class RetentionRunner {
 			return $stats;
 		}
 		try {
-			// Mit der Sperre frisch lesen: Der Prozess (cron.php) kann lange vor diesem Job
-			// gestartet sein; inzwischen hat ein anderer Lauf womöglich den Zyklus beendet
+			// Re-read fresh while holding the lock: the process (cron.php) may have started long
+			// before this job; another run may have finished the cycle in the meantime
 			$this->settings->refresh();
 			$cursor = $this->settings->getCursor();
 			if ($cursor === null) {
@@ -140,7 +140,7 @@ class RetentionRunner {
 			$this->logger->info('folder_retention: cycle completed – ' . $stats->summary($this->language->english()));
 			return $stats;
 		} catch (RunLockLostException $e) {
-			// Cursor bleibt, wo er war – der Lauf, der die Sperre hält, arbeitet weiter
+			// Cursor stays where it was – the run holding the lock carries on
 			return $this->lockLost($stats, $e);
 		} finally {
 			$this->finishRun($stats);
@@ -148,11 +148,11 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Kompletter Lauf für occ, ohne Cursor und Zeitbudget.
+	 * Complete run for occ, without cursor and time budget.
 	 *
-	 * @param bool $dryRun nur ausgeben – weder löschen noch ins Log schreiben
-	 * @param int|null $ruleId nur Dateien, für die diese Regel gilt
-	 * @param callable(RetentionRoot, Decision, string, ?string):void|null $report pro fälliger Datei (Status, Meldung)
+	 * @param bool $dryRun output only – neither delete nor write to the log
+	 * @param int|null $ruleId only files to which this rule applies
+	 * @param callable(RetentionRoot, Decision, string, ?string):void|null $report per due file (status, message)
 	 */
 	public function runFull(bool $dryRun, ?int $ruleId, ?callable $report = null): RunStats {
 		$stats = new RunStats();
@@ -170,7 +170,7 @@ class RetentionRunner {
 			}
 		};
 
-		// Dry-Run schreibt nichts – er braucht keine Sperre und darf neben einem Lauf stehen
+		// A dry run writes nothing – it needs no lock and may run alongside another run
 		if (!$dryRun) {
 			$lockedBy = $this->acquireLease('occ folder_retention:run');
 			if ($lockedBy !== null) {
@@ -182,7 +182,7 @@ class RetentionRunner {
 			if (!$dryRun) {
 				$this->ensureSeenMark();
 			}
-			// Tags nur bei echten Komplettläufen – ein --rule-Lauf sieht nicht alle Dateien
+			// Tags only on real complete runs – a --rule run does not see all files
 			$withTags = !$dryRun && $ruleId === null && $this->settings->tagsEnabled();
 			foreach ($this->roots->getRoots() as $root) {
 				$this->scanRoot($root, $root->rootPath, 0, $ruleSet, null, $handler, $stats, $withTags, !$dryRun);
@@ -200,8 +200,9 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Grenze Bestand/neu (Settings::seenMaxFileId) setzt eigentlich InstallDefaults bei Installation
-	 * bzw. Update. Fehlt sie trotzdem, spätestens jetzt – bis dahin gilt vorsichtig jede Datei als neu.
+	 * The existing/new boundary (Settings::seenMaxFileId) is normally set by InstallDefaults on
+	 * install or update. If it is missing anyway, set it now at the latest – until then, to be
+	 * safe, every file counts as new.
 	 */
 	private function ensureSeenMark(): void {
 		if ($this->settings->seenMaxFileId() === null) {
@@ -209,15 +210,15 @@ class RetentionRunner {
 		}
 	}
 
-	/** System-Cron bzw. occ – nicht cron.php im Web (AJAX/Webcron) */
+	/** System cron or occ – not cron.php on the web (AJAX/Webcron) */
 	protected function isCli(): bool {
 		return PHP_SAPI === 'cli';
 	}
 
 	/**
-	 * Laufsperre holen. Holder-Text erscheint beim jeweils anderen Lauf in der Meldung.
+	 * Acquire the run lock. The holder text appears in the other run's message.
 	 *
-	 * @return string|null Beschreibung des fremden Halters oder null = Sperre erhalten
+	 * @return string|null description of the other holder, or null = lock acquired
 	 */
 	private function acquireLease(string $what): ?string {
 		$token = $this->random->generate(16, ISecureRandom::CHAR_ALPHANUMERIC);
@@ -234,10 +235,10 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Gehaltene Sperre verlängern, wenn sie älter als LEASE_RENEW ist (lange occ-Läufe) –
-	 * mit $force immer, z. B. unmittelbar vor dem Löschen.
+	 * Renew the held lock if it is older than LEASE_RENEW (long occ runs) –
+	 * always with $force, e.g. immediately before deleting.
 	 *
-	 * @throws RunLockLostException Sperre ist abgelaufen und gehört inzwischen einem anderen Lauf
+	 * @throws RunLockLostException lock has expired and now belongs to another run
 	 */
 	private function renewLease(bool $force = false): void {
 		$now = $this->time->getTime();
@@ -246,7 +247,7 @@ class RetentionRunner {
 		}
 		if (!$this->settings->renewRunLease($this->leaseToken, $now, self::LEASE_TTL)) {
 			$other = $this->settings->runLease();
-			$this->leaseToken = null; // nicht mehr unsere – beim Aufräumen nicht freigeben
+			$this->leaseToken = null; // no longer ours – do not release during cleanup
 			throw new RunLockLostException($other['holder'] ?? null);
 		}
 		$this->leaseRenewedAt = $now;
@@ -261,8 +262,8 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Nach jedem Lauf: Papierkorb-Einträge der letzten Sekunden nachprüfen (noch unter der
-	 * Laufsperre), Dateisystem-Kontext zurück, Sperre freigeben
+	 * After every run: re-check trash bin entries of the last seconds (still under the
+	 * run lock), restore the filesystem context, release the lock
 	 */
 	private function finishRun(RunStats $stats): void {
 		try {
@@ -286,9 +287,9 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Nur Tags abgleichen (nach Regeländerungen, per occ). Löscht und protokolliert nichts.
+	 * Only sync tags (after rule changes, via occ). Deletes and logs nothing.
 	 *
-	 * @param int|null $folderId nur dieser Ordner samt Unterbaum; null = alles
+	 * @param int|null $folderId only this folder including its subtree; null = everything
 	 */
 	public function syncTags(?int $folderId): RunStats {
 		$stats = new RunStats();
@@ -313,15 +314,15 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Tag-ID, die ein Objekt tragen soll – oder null, wenn für es keine Regel greift.
+	 * Tag ID an object should carry – or null if no rule applies to it.
 	 *
-	 * @param list<int> $folderChain bei Dateien ab dem Elternordner, bei Ordnern ab dem Ordner selbst
+	 * @param list<int> $folderChain for files starting at the parent folder, for folders starting at the folder itself
 	 */
 	public function desiredTag(RetentionRoot $root, array $folderChain, RuleSet $ruleSet): ?int {
 		$ruleSet = $ruleSet->forRoot($root);
 		$resolution = $this->resolver->resolve($folderChain, $ruleSet->byFolderId, $ruleSet->default);
 		if ($resolution->isDefault() && $root->isHome() && $ruleSet->personal === null) {
-			return null; // ohne persönliche Standardregel wird dort nichts gelöscht
+			return null; // without a default rule for personal folders nothing is deleted there
 		}
 		return $this->tags->tagIdFor($resolution->rule->period);
 	}
@@ -342,7 +343,7 @@ class RetentionRunner {
 		}
 	}
 
-	/** @param array<int, ?int> $desired wird geleert */
+	/** @param array<int, ?int> $desired gets emptied */
 	private function flushTags(array &$desired, RunStats $stats): void {
 		if ($desired === [] || $this->tagsFailed) {
 			$desired = [];
@@ -351,7 +352,7 @@ class RetentionRunner {
 		try {
 			$this->tags->apply($desired, $stats);
 		} catch (\Throwable $e) {
-			// Tags sind nur Anzeige – ein Fehler darf den Aufbewahrungslauf nicht stoppen
+			// Tags are display only – an error must not stop the retention run
 			$this->tagsFailed = true;
 			$this->logger->error('folder_retention: tag sync failed, disabled for this run', ['exception' => $e]);
 		}
@@ -370,10 +371,10 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Dateien, die in den nächsten $days Tagen gelöscht würden (bereits fällige eingeschlossen).
+	 * Files that would be deleted within the next $days days (including those already due).
 	 *
-	 * @param int|null $folderId null = alle Dateien, für die eine Standardregel gilt
-	 * @param bool $personal bei $folderId = null: die Standardregel persönlicher Ordner statt der allgemeinen
+	 * @param int|null $folderId null = all files to which a default rule applies
+	 * @param bool $personal with $folderId = null: the default rule for personal folders instead of the general one
 	 * @return array{items: list<array<string, mixed>>, total: int, truncated: bool, incomplete: bool}
 	 */
 	public function preview(?int $folderId, int $days, int $limit, float $budgetSeconds, bool $personal = false): array {
@@ -413,7 +414,7 @@ class RetentionRunner {
 					'ruleId' => $d->resolution->rule->id,
 					'ruleFolderId' => $d->resolution->sourceFolderId(),
 					'ruleLabel' => $d->resolution->rule->period->label($this->l),
-					// Woher die Regel kommt – wird unten zu einem Namen aufgelöst
+					// Where the rule comes from – resolved to a name below
 					'ruleSource' => $d->resolution->isDefault()
 						? ($d->resolution->rule->personal ? $this->l->t('Default rule for personal folders') : $this->l->t('Default rule'))
 						: ($d->resolution->sourceFolderId() === $root->rootId ? $this->l->t('“%s”', [$root->label]) : null),
@@ -445,8 +446,8 @@ class RetentionRunner {
 
 	/**
 	 * @param callable(RetentionRoot, Decision):mixed $handler
-	 * @param bool $recordSeen fehlendes „zuerst gesehen“ in die DB schreiben (nur echte Läufe/Simulation)
-	 * @return int|null letzte bearbeitete fileid, wenn das Zeitbudget erschöpft ist; null = fertig
+	 * @param bool $recordSeen write missing "first seen" to the DB (only real runs/simulation)
+	 * @return int|null last processed fileid if the time budget is used up; null = done
 	 */
 	private function scanRoot(RetentionRoot $root, string $pathPrefix, int $after, RuleSet $ruleSet, ?float $deadline, callable $handler, RunStats $stats, bool $withTags = false, bool $recordSeen = false): ?int {
 		$this->fileCache->reset();
@@ -455,14 +456,14 @@ class RetentionRunner {
 		$ruleSet = $ruleSet->forRoot($root);
 		$defaultApplies = !$root->isHome() || $ruleSet->personal !== null;
 		$batchSize = $this->settings->batchSize();
-		// unbekannte Grenze: vorsichtig jede Datei als neu behandeln (0)
+		// unknown boundary: to be safe, treat every file as new (0)
 		$seenMark = $this->settings->seenMaxFileId() ?? 0;
 		$withTags = $withTags && !$this->tagsFailed;
-		/** @var array<int, ?int> $tags fileid → gewünschte Tag-ID */
+		/** @var array<int, ?int> $tags fileid → desired tag ID */
 		$tags = [];
 
 		if ($withTags && $after === 0) {
-			// Der Startordner selbst liegt nicht unter $pathPrefix/…
+			// The start folder itself is not under $pathPrefix/...
 			$startId = $pathPrefix === $root->rootPath ? $root->rootId : $this->fileCache->getIdByPath($root->storageId, $pathPrefix);
 			$chain = $startId === null ? null : $this->fileCache->chain($startId, $root->rootId);
 			if ($chain !== null) {
@@ -483,7 +484,7 @@ class RetentionRunner {
 			foreach ($batch as $file) {
 				$after = $file->fileId;
 				if ($file->isFolder) {
-					// Ordner tragen die Frist, die für Dateien direkt darin gilt
+					// Folders carry the retention period that applies to files directly inside them
 					$chain = $this->fileCache->chain($file->fileId, $root->rootId);
 					if ($chain !== null && $withTags) {
 						$this->want($tags, $file->fileId, fn () => $this->desiredTag($root, $chain, $ruleSet));
@@ -491,7 +492,7 @@ class RetentionRunner {
 				} else {
 					$chain = $this->fileCache->chain($file->parentId, $root->rootId);
 					if ($chain === null) {
-						continue; // liegt nicht (mehr) unter der Bereichswurzel
+						continue; // not (or no longer) under the area root
 					}
 					$stats->evaluated++;
 					$decision = $this->evaluator->evaluate($file, $chain, $ruleSet, $defaultApplies, $tz, $now);
@@ -512,12 +513,12 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Ergänzt einen Batch um „zuerst gesehen“ und die letzte echte Löschung je Datei.
-	 * Jede Datei ohne Eintrag gilt ab jetzt als gesehen – auch mit Upload-Zeit, denn Kopien
-	 * erben die des Originals (ReferenceDate). Ohne Upload-Zeit ist sie damit nicht fällig.
-	 * Zurückgeholte Dateien (letzte Löschung durch die App, danach nicht mehr gesehen) gelten
-	 * ebenfalls ab jetzt als gesehen – ab der Wiederherstellung zählt die Frist neu (ReferenceDate).
-	 * Vermerkt wird nur bei $record; Vorschau und Dry-Run rechnen mit „jetzt“.
+	 * Enriches a batch with "first seen" and the last real deletion per file.
+	 * Every file without an entry counts as seen from now on – even with an upload time, because
+	 * copies inherit the original's (ReferenceDate). Without an upload time it is thus not due.
+	 * Restored files (last deleted by the app, not seen since) likewise count as seen from now
+	 * on – the retention period restarts from the restore (ReferenceDate).
+	 * Only recorded with $record; preview and dry run calculate with "now".
 	 *
 	 * @param list<FileRow> $batch
 	 * @return list<FileRow>
@@ -552,12 +553,11 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Unmittelbar vor dem Löschen: Ort, Elternkette, Regeln und Bezugsdatum frisch aus der DB.
-	 * Der Scan kann Stunden alt sein (occ ohne Zeitbudget), die Elternketten stammen aus dem
-	 * Zwischenspeicher – verschobene Dateien oder geänderte Regeln dürfen nicht nach altem
-	 * Stand gelöscht werden.
+	 * Immediately before deleting: location, parent chain, rules and reference date fresh from the DB.
+	 * The scan may be hours old (occ without time budget), and the parent chains come from the
+	 * cache – moved files or changed rules must not be deleted based on stale state.
 	 *
-	 * @return array{0: ?Decision, 1: ?string} frische Entscheidung oder Grund, warum nicht gelöscht wird
+	 * @return array{0: ?Decision, 1: ?string} fresh decision or reason why it is not deleted
 	 */
 	private function recheck(RetentionRoot $root, Decision $d): array {
 		$now = $this->time->getTime();
@@ -589,9 +589,9 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Fehler einer einzelnen Datei brechen den Lauf nicht ab: protokollieren, weiter am Cursor.
+	 * Errors on a single file do not abort the run: log them, continue at the cursor.
 	 *
-	 * @return array{0: ?string, 1: ?string} Status (null = nicht fällig) und Meldung
+	 * @return array{0: ?string, 1: ?string} status (null = not due) and message
 	 */
 	private function act(RetentionRoot $root, Decision $d, RuleSet $ruleSet, bool $simulate, bool $dryRun, int $now, RunStats $stats): array {
 		if (!$d->isDueAt($now)) {
@@ -611,7 +611,7 @@ class RetentionRunner {
 				try {
 					$this->log($root, $d, $simulate ? LogEntry::MODE_SIMULATION : LogEntry::MODE_REAL, LogEntry::STATUS_ERROR, $message, $this->time->getTime());
 				} catch (Throwable) {
-					// Protokoll selbst nicht erreichbar – steht schon im Nextcloud-Log
+					// Log itself not reachable – already recorded in the Nextcloud log
 				}
 			}
 			return [LogEntry::STATUS_ERROR, $message];
@@ -638,7 +638,7 @@ class RetentionRunner {
 		}
 
 		if (isset($this->blockedInRun[$root->blockKey()]) || $this->settings->isRootBlocked($root->blockKey())) {
-			// Nach einer endgültigen Löschung: nichts mehr in diesem Bereich, bis ein Admin die Sperre aufhebt
+			// After a permanent deletion: nothing more in this area until an admin lifts the lock
 			$stats->skipped++;
 			$stats->blocked++;
 			if (!isset($this->blockReported[$root->blockKey()])) {
@@ -650,15 +650,15 @@ class RetentionRunner {
 
 		$halted = $this->deleter->haltReason();
 		if ($halted !== null) {
-			// Papierkorb hat in diesem Lauf eine Ausnahme geworfen – Nextcloud könnte danach am
-			// Papierkorb vorbei löschen. Rest des Laufs: nichts mehr anfassen (Warnung steht im Nextcloud-Log)
+			// The trash bin threw an exception in this run – Nextcloud might afterwards delete bypassing
+			// the trash bin. Rest of the run: touch nothing more (warning is in the Nextcloud log)
 			$stats->skipped++;
 			$stats->blocked++;
 			return [LogEntry::STATUS_SKIPPED_BLOCKED, $this->language->l10n()->t('Deletion halted for this run: %s', [$halted])];
 		}
 
-		// Notbremse: Simulation mitten im Lauf eingeschaltet (Oberfläche oder occ config:app:set).
-		// Frisch aus der Datenbank – IAppConfig hält den Wert vom Prozessstart
+		// Emergency brake: simulation mode switched on mid-run (UI or occ config:app:set).
+		// Fresh from the database – IAppConfig holds the value from process start
 		if ($this->settings->isSimulationFresh()) {
 			if (!$this->simulationSwitched) {
 				$this->simulationSwitched = true;
@@ -667,7 +667,7 @@ class RetentionRunner {
 			return $this->actDue($root, $d, true, false, $now, $stats);
 		}
 
-		// Sperre unmittelbar vor dem Löschen sicherstellen – nie zwei Läufe gleichzeitig
+		// Ensure the lock immediately before deleting – never two runs at the same time
 		$this->renewLease(true);
 		[$fresh, $reason] = $this->recheck($root, $d);
 		if ($fresh === null) {
@@ -682,12 +682,12 @@ class RetentionRunner {
 			LogEntry::STATUS_ERROR, LogEntry::STATUS_DELETED_FINAL => $stats->errors++,
 			default => $stats->skipped++,
 		};
-		// Erst den Status dieser Datei protokollieren, dann sperren und berichtigen: Ein Fehler beim
-		// Sperren darf „deleted“/„deleted_final“ nicht durch „Interner Fehler“ ersetzen
+		// Log this file's status first, then lock and correct: an error while locking must not
+		// replace "deleted"/"deleted_final" with "Internal error"
 		try {
 			$this->log($root, $fresh, LogEntry::MODE_REAL, $status, $message, $this->time->getTime());
 		} catch (Throwable $e) {
-			// Die Löschung ist geschehen – nicht als „Fehler bei der Datei“ melden, sondern ehrlich hier
+			// The deletion has happened – do not report it as "error on file", but honestly here
 			$this->logger->error('folder_retention: file ' . $fresh->file->fileId . ' ("' . $root->displayPath($fresh->file->path) . '") processed with status ' . $status . ', writing the log entry failed', ['exception' => $e]);
 		}
 		if ($status === LogEntry::STATUS_DELETED_FINAL) {
@@ -701,8 +701,8 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Bereich sperren: sofort für diesen Lauf, dazu dauerhaft in der Datenbank. Scheitert das
-	 * Speichern, steht es im Nextcloud-Log; dieser Lauf löscht dort trotzdem nichts mehr.
+	 * Lock an area: immediately for this run, plus persistently in the database. If saving fails,
+	 * it is recorded in the Nextcloud log; this run still deletes nothing more there.
 	 */
 	private function block(RetentionRoot $root, string $reason): void {
 		$this->blockedInRun[$root->blockKey()] = true;
@@ -714,9 +714,9 @@ class RetentionRunner {
 	}
 
 	/**
-	 * Dateien, die in diesem Lauf als gelöscht verbucht wurden, deren Papierkorb-Eintrag Nextcloud
-	 * aber inzwischen überschrieben hat (gleicher Name in derselben Sekunde): Protokoll berichtigen,
-	 * Bereich sperren. Der Deleter hat das Löschen für den Rest des Laufs schon angehalten.
+	 * Files recorded as deleted in this run whose trash bin entry Nextcloud has since overwritten
+	 * (same name in the same second): correct the log, lock the area. The Deleter has already
+	 * halted deletion for the rest of the run.
 	 */
 	private function recordLost(RunStats $stats): void {
 		foreach ($this->deleter->takeLost() as [$lostRoot, $lostFile, $reason]) {

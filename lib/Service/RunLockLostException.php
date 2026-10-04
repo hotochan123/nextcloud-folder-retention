@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\Service;
 
 /**
- * Die Laufsperre gehört nicht mehr diesem Lauf (abgelaufen und von einem anderen Lauf
- * übernommen). Der Lauf bricht ab, statt parallel weiterzulöschen.
+ * The run lock no longer belongs to this run (expired and taken over by another
+ * run). The run aborts instead of continuing to delete in parallel.
  */
 class RunLockLostException extends \RuntimeException {
 	public function __construct(

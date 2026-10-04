@@ -11,18 +11,18 @@ use OCP\IUser;
 use OCP\IUserManager;
 
 /**
- * Ermittelt die zu bewertenden Bereiche aus dem Mount-Cache (oc_mounts):
- *  - Team-Ordner (groupfolders) – jeweils einmal, egal wie viele Mitglieder
- *  - Home-Storages – nur der files/-Teil (nicht Papierkorb, Versionen, Cache);
- *    als Arbeitsbereich markierte Konten erscheinen mit ihrem Anzeigenamen
- * Freigaben (files_sharing), externe Speicher usw. werden übersprungen.
+ * Determines the areas to evaluate from the mount cache (oc_mounts):
+ *  - team folders (groupfolders) – once each, no matter how many members
+ *  - home storages – only the files/ part (not trash bin, versions, cache);
+ *    accounts marked as workspace accounts appear with their display name
+ * Shares (files_sharing), external storage etc. are skipped.
  *
- * Grenze: Der Mount-Cache kennt nur Mounts von Benutzern, die sich seit Anlage des
- * Team-Ordners mindestens einmal angemeldet haben bzw. deren Dateisystem eingerichtet wurde.
+ * Limitation: the mount cache only knows mounts of users who have logged in at least once since
+ * the team folder was created, or whose file system has been set up.
  */
 class RootProvider {
 	public const GROUPFOLDER_PROVIDER = 'OCA\\GroupFolders\\Mount\\MountProvider';
-	/** Maximal so viele Benutzer je Team-Ordner merken (Löschversuche über deren Sicht) */
+	/** Remember at most this many users per team folder (deletion attempts go through their view) */
 	private const MAX_USERS_PER_ROOT = 5;
 
 	/** @var list<RetentionRoot>|null */
@@ -37,7 +37,7 @@ class RootProvider {
 	) {
 	}
 
-	/** @return list<RetentionRoot> sortiert nach key() */
+	/** @return list<RetentionRoot> sorted by key() */
 	public function getRoots(): array {
 		if ($this->cache !== null) {
 			return $this->cache;
@@ -90,7 +90,7 @@ class RootProvider {
 	}
 
 	/**
-	 * Bereich, in dem ein Ordner/eine Datei liegt, samt Ordnerkette bis zur Bereichswurzel.
+	 * Area containing a folder/file, together with the folder chain up to the area root.
 	 *
 	 * @return array{0: RetentionRoot, 1: list<int>}|null
 	 */
@@ -111,7 +111,7 @@ class RootProvider {
 		return null;
 	}
 
-	/** Existiert der Ordner, ist er wirklich ein Ordner und liegt er in einem verwalteten Bereich? */
+	/** Does the folder exist, is it really a folder, and does it lie in a managed area? */
 	public function isManagedFolder(int $folderId): bool {
 		$entry = $this->fileCache->getEntry($folderId);
 		return $entry !== null && $entry['isFolder'] && $this->locate($folderId) !== null;

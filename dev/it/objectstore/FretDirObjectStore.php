@@ -7,10 +7,10 @@ namespace OC\Files\ObjectStore;
 use OCP\Files\ObjectStore\IObjectStore;
 
 /**
- * Nur für den Harness (dev/it, S23): Objektspeicher als Primärspeicher ohne S3 – jedes Objekt
- * ist eine Datei in einem Verzeichnis. Nextcloud verwaltet die Konten dann als
- * HomeObjectStoreStorage mit normalem Cache (nicht HomeCache) – wie bei S3/Swift.
- * Liegt unter lib/private/Files/ObjectStore, damit der Autoloader (PSR-4 „OC\“) sie findet.
+ * Harness only (dev/it, S23): object store as primary storage without S3 – every object
+ * is a file in a directory. Nextcloud then manages the accounts as
+ * HomeObjectStoreStorage with a normal cache (not HomeCache) – as with S3/Swift.
+ * Lives under lib/private/Files/ObjectStore so the autoloader (PSR-4 "OC\") finds it.
  */
 class FretDirObjectStore implements IObjectStore {
 	private string $dir;

@@ -11,9 +11,9 @@ use OCP\Migration\IOutput;
 use OCP\Migration\SimpleMigrationStep;
 
 /**
- * Legt Regel- und Audit-Tabelle an.
+ * Creates the rule and audit tables.
  *
- * Tabellennamen ohne "oc_"-Präfix; max. 27 Zeichen (Oracle-Limit der NC-Migrationen).
+ * Table names without the "oc_" prefix; max. 27 characters (Oracle limit of NC migrations).
  */
 class Version1000Date20260925000000 extends SimpleMigrationStep {
 
@@ -24,16 +24,16 @@ class Version1000Date20260925000000 extends SimpleMigrationStep {
 		if (!$schema->hasTable('folder_retention_rules')) {
 			$table = $schema->createTable('folder_retention_rules');
 			$table->addColumn('id', Types::BIGINT, ['autoincrement' => true, 'notnull' => true, 'unsigned' => true]);
-			// NULL = Standardregel (genau eine, wird im Service erzwungen – ein UNIQUE-Index
-			// deckt NULL in PostgreSQL/MySQL nicht ab).
+			// NULL = default rule (exactly one, enforced in the service – a UNIQUE index
+			// does not cover NULL in PostgreSQL/MySQL).
 			$table->addColumn('folder_id', Types::BIGINT, ['notnull' => false, 'unsigned' => true]);
-			// NULL bei period_unit = 'never'
+			// NULL when period_unit = 'never'
 			$table->addColumn('period_value', Types::INTEGER, ['notnull' => false, 'unsigned' => true]);
 			$table->addColumn('period_unit', Types::STRING, ['notnull' => true, 'length' => 8]);
-			// NULL bei der Standardregel
+			// NULL for the default rule
 			$table->addColumn('scope', Types::STRING, ['notnull' => false, 'length' => 8]);
 			$table->addColumn('basis', Types::STRING, ['notnull' => true, 'length' => 8, 'default' => 'created']);
-			// Boolean-Spalten müssen in NC-Migrationen nullable sein.
+			// Boolean columns must be nullable in NC migrations.
 			$table->addColumn('notify', Types::BOOLEAN, ['notnull' => false, 'default' => false]);
 			$table->addColumn('created_by', Types::STRING, ['notnull' => false, 'length' => 64]);
 			$table->addColumn('created_at', Types::BIGINT, ['notnull' => true, 'unsigned' => true]);
@@ -47,14 +47,14 @@ class Version1000Date20260925000000 extends SimpleMigrationStep {
 			$table->addColumn('id', Types::BIGINT, ['autoincrement' => true, 'notnull' => true, 'unsigned' => true]);
 			$table->addColumn('file_id', Types::BIGINT, ['notnull' => true, 'unsigned' => true]);
 			$table->addColumn('storage_id', Types::BIGINT, ['notnull' => true, 'unsigned' => true]);
-			// Pfad zum Zeitpunkt der Löschung (benutzerlesbar, z. B. "SVZ Workspace - Academy/x.pdf")
+			// Path at the time of deletion (human-readable, e.g. "SVZ Workspace - Academy/x.pdf")
 			$table->addColumn('path', Types::STRING, ['notnull' => true, 'length' => 4000]);
-			// Regel-ID + Ordner-ID der Regel (Ordner-ID bleibt aussagekräftig, falls die Regel gelöscht wird)
+			// Rule ID + folder ID of the rule (the folder ID stays meaningful if the rule is deleted)
 			$table->addColumn('rule_id', Types::BIGINT, ['notnull' => false, 'unsigned' => true]);
 			$table->addColumn('rule_folder_id', Types::BIGINT, ['notnull' => false, 'unsigned' => true]);
 			$table->addColumn('rule_label', Types::STRING, ['notnull' => false, 'length' => 64]);
 			$table->addColumn('reference_date', Types::BIGINT, ['notnull' => true, 'unsigned' => true]);
-			// created | upload | mtime – woher das Bezugsdatum stammt
+			// created | upload | mtime – where the reference date comes from
 			$table->addColumn('reference_source', Types::STRING, ['notnull' => true, 'length' => 8]);
 			$table->addColumn('deleted_at', Types::BIGINT, ['notnull' => true, 'unsigned' => true]);
 			// real | simulation

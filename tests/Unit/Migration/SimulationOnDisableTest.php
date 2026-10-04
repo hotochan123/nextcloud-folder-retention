@@ -10,8 +10,8 @@ use OCP\Migration\IOutput;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Nextcloud löscht beim Entfernen der App ihre App-Config nicht. Ohne diesen Schritt liefe eine
- * Neuinstallation mit ausgeschalteter Simulation nach den alten Fristen sofort scharf (Harness S26).
+ * Nextcloud does not delete the app config when the app is removed. Without this step a
+ * reinstall would run live immediately with simulation mode off, using the old retention periods (harness S26).
  */
 class SimulationOnDisableTest extends TestCase {
 	public function testSwitchesSimulationOn(): void {
@@ -21,7 +21,7 @@ class SimulationOnDisableTest extends TestCase {
 	}
 
 	public function testIsRegisteredAsUninstallStep(): void {
-		// Nextcloud führt die uninstall-Schritte bei app:disable und app:remove (ohne --keep-data) aus
+		// Nextcloud runs the uninstall steps on app:disable and app:remove (without --keep-data)
 		$xml = simplexml_load_file(__DIR__ . '/../../../appinfo/info.xml');
 		$this->assertNotFalse($xml);
 		$steps = array_map('strval', $xml->xpath('/info/repair-steps/uninstall/step') ?: []);

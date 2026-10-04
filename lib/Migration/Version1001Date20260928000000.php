@@ -11,9 +11,9 @@ use OCP\Migration\IOutput;
 use OCP\Migration\SimpleMigrationStep;
 
 /**
- * Zweite Standardregel für persönliche Ordner: Spalte „target“ unterscheidet die beiden
- * Standardregeln (folder_id = NULL). NULL = allgemeine Standardregel bzw. Ordnerregel,
- * 'personal' = Standardregel für persönliche Ordner. Angelegt wird sie in InstallDefaults.
+ * Second default rule for personal folders: column "target" distinguishes the two
+ * default rules (folder_id = NULL). NULL = general default rule or folder rule,
+ * 'personal' = default rule for personal folders. It is created in InstallDefaults.
  */
 class Version1001Date20260928000000 extends SimpleMigrationStep {
 

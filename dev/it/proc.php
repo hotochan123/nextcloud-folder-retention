@@ -1,19 +1,19 @@
 <?php
-// Zweiter Nextcloud-Prozess für den Integrations-Harness (läuft IM Wegwerf-Container, als www-data).
-// Spielt einen lange laufenden Prozess (cron.php) bzw. einen parallelen Lauf nach – mit eigenem
-// Prozess-Cache der App-Config, wie im Betrieb.
-//   php proc.php block <schlüssel> <zeitpunkt>          Sperre setzen (wie ein Lauf nach endgültiger Löschung)
-//   php proc.php wait <prüfschlüssel> <eigener schlüssel>
-//       liest die Sperrliste, meldet /tmp/s20-ready, wartet auf /tmp/s20-go, prüft dann erneut und
-//       setzt eine eigene Sperre (Zeitpunkt 300). Ausgabe: „before=<0|1> after=<0|1>“
+// Second Nextcloud process for the integration harness (runs INSIDE the throwaway container, as www-data).
+// Simulates a long-running process (cron.php) or a parallel run – with its own
+// process cache of the app config, as in production.
+//   php proc.php block <key> <timestamp>                set a block (like a run after a permanent deletion)
+//   php proc.php wait <check key> <own key>
+//       reads the block list, signals /tmp/s20-ready, waits for /tmp/s20-go, then checks again and
+//       sets its own block (timestamp 300). Output: "before=<0|1> after=<0|1>"
 //   php proc.php samesecond <fileid A> <fileid B>
-//       zwei Läufe direkt hintereinander (wie „occ …run; occ …run“ bzw. Job übernimmt die Sperre):
-//       A verschieben, Laufende (releaseContext), sofort B verschieben – möglichst in derselben
-//       Sekunde. Ausgabe: „a=<status> b=<status> aEnd=<s> bStart=<s> bEnd=<s>“
+//       two runs back to back (like "occ …run; occ …run" or the job taking over the block):
+//       move A, end of run (releaseContext), immediately move B – ideally within the same
+//       second. Output: "a=<status> b=<status> aEnd=<s> bStart=<s> bEnd=<s>"
 //   php proc.php trashthrow <fileid>
-//       zwei Läufe im selben Prozess (wie occ background-job:worker): Im ersten wirft das
-//       Locking-Backend beim Sperren des Papierkorb-Ziels (Trashbin::move2trash) eine Ausnahme,
-//       im zweiten nicht mehr – dieselbe Datei erneut. Ausgabe: „a=<status> b=<status> | <Meldung b>“
+//       two runs in the same process (like occ background-job:worker): in the first, the
+//       locking backend throws an exception when locking the trash bin target (Trashbin::move2trash),
+//       in the second it no longer does – same file again. Output: "a=<status> b=<status> | <message b>"
 declare(strict_types=1);
 
 require_once '/var/www/html/lib/base.php';
@@ -28,7 +28,7 @@ switch ($argv[1] ?? '') {
 		break;
 	case 'wait':
 		$before = $settings->isRootBlocked($argv[2]) ? 1 : 0;
-		$settings->getCursor(); // App-Config ist jetzt im Prozess-Cache
+		$settings->getCursor(); // app config is now in the process cache
 		file_put_contents('/tmp/s20-ready', '1');
 		for ($i = 0; $i < 300 && !file_exists('/tmp/s20-go'); $i++) {
 			usleep(100_000);
@@ -38,7 +38,7 @@ switch ($argv[1] ?? '') {
 		echo "before=$before after=$after\n";
 		break;
 	case 'samesecond':
-		\OC_App::loadApps(); // files_trashbin, groupfolders – wie occ
+		\OC_App::loadApps(); // files_trashbin, groupfolders – like occ
 		$fileCache = \OCP\Server::get(\OCA\FolderRetention\Service\FileCacheReader::class);
 		$rootProvider = \OCP\Server::get(\OCA\FolderRetention\Service\RootProvider::class);
 		$deleter = \OCP\Server::get(\OCA\FolderRetention\Service\Deleter::class);
@@ -52,7 +52,7 @@ switch ($argv[1] ?? '') {
 			}
 			$rows[] = [$located[0], $row];
 		}
-		// am Anfang einer Sekunde beginnen, damit B ohne Warten in dieselbe Sekunde fiele
+		// start at the beginning of a second so B would fall into the same second without waiting
 		while (fmod(microtime(true), 1.0) > 0.05) {
 			usleep(10_000);
 		}
@@ -95,7 +95,7 @@ switch ($argv[1] ?? '') {
 				$this->inner->releaseAll();
 			}
 		};
-		// Trashbin::move2trash holt den Anbieter bei jedem Aufruf per Server::get
+		// Trashbin::move2trash fetches the provider via Server::get on every call
 		\OC::$server->registerService(\OCP\Lock\ILockingProvider::class, fn () => $locking);
 		$fileCache = \OCP\Server::get(\OCA\FolderRetention\Service\FileCacheReader::class);
 		$rootProvider = \OCP\Server::get(\OCA\FolderRetention\Service\RootProvider::class);

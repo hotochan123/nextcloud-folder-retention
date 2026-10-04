@@ -16,7 +16,7 @@ use OCP\Files\Events\Node\NodeRenamedEvent;
 class Application extends App implements IBootstrap {
 	public const APP_ID = 'folder_retention';
 
-	/** App-Config-Schlüssel (IAppConfig) */
+	/** App config keys (IAppConfig) */
 	public const CONFIG_SIMULATION = 'simulation_mode';
 	public const CONFIG_INCLUDE_PERSONAL = 'default_applies_to_personal';
 	public const CONFIG_TAGS = 'tags_enabled';

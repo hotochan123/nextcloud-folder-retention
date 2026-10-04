@@ -11,13 +11,13 @@ use OCP\Migration\IOutput;
 use OCP\Migration\SimpleMigrationStep;
 
 /**
- * „Zuerst gesehen“ je Datei: Bezugsdatum für basis=created, wenn Nextcloud keine Upload-Zeit
- * kennt (occ files:scan, Altbestand) bzw. eine Kopie die Upload-Zeit des Originals geerbt hat.
- * Der Lauf trägt fehlende Dateien gebündelt ein. Zeilen gelöschter Dateien bleiben liegen –
- * sie stören nicht (Datei-IDs werden nicht wiederverwendet).
+ * "First seen" per file: reference date for basis=created when Nextcloud knows no upload time
+ * (occ files:scan, legacy files) or when a copy has inherited the original's upload time.
+ * The run records missing files in batches. Rows of deleted files are left in place –
+ * they do no harm (file IDs are not reused).
  *
- * Dazu die Laufsperre (occ und Hintergrundjob): eine Zeile je Sperre, gesetzt per Einfügen
- * bzw. bedingtem UPDATE – beides atomar, anders als ein Wert in der App-Config.
+ * Plus the run lock (occ and background job): one row per lock, set via insert
+ * or conditional UPDATE – both atomic, unlike a value in the app config.
  */
 class Version1002Date20261004000000 extends SimpleMigrationStep {
 
@@ -38,7 +38,7 @@ class Version1002Date20261004000000 extends SimpleMigrationStep {
 			$table->addColumn('token', Types::STRING, ['notnull' => true, 'length' => 64]);
 			$table->addColumn('holder', Types::STRING, ['notnull' => true, 'length' => 255, 'default' => '']);
 			$table->addColumn('expires', Types::BIGINT, ['notnull' => true, 'default' => 0]);
-			// Zählt jede Verlängerung hoch – sonst meldet MySQL bei unverändertem Wert 0 betroffene Zeilen
+			// Incremented on every renewal – otherwise MySQL reports 0 affected rows when the value is unchanged
 			$table->addColumn('renewals', Types::BIGINT, ['notnull' => true, 'default' => 0]);
 			$table->setPrimaryKey(['lock_name'], 'fret_lock_pk');
 			$changed = true;

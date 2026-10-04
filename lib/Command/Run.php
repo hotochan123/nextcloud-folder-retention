@@ -82,7 +82,7 @@ class Run extends Command {
 
 		if ($stats->lockedBy !== null) {
 			if ($stats->evaluated > 0) {
-				// Sperre erst während des Laufs verloren: Bis dahin Bearbeitetes trotzdem zeigen
+				// Lock was lost only during the run: still show what was processed up to that point
 				$table->render();
 				$output->writeln($this->l->t('Result up to the abort: %s', [$stats->summary($this->l)]));
 			}
@@ -103,7 +103,7 @@ class Run extends Command {
 			$output->writeln('<error>' . $this->l->t('Locked: “%1$s” (key %2$s) – %3$s', [$b['label'], $key, $b['reason']]) . '</error>');
 		}
 		if ($blocked !== []) {
-			// Gezielt je Bereich – nie alle auf einmal, sonst ginge eine eben erst gesetzte Sperre mit verloren
+			// Deliberately per area – never all at once, otherwise a lock that was only just set would be lost as well
 			$output->writeln($this->l->t('Nothing is deleted in locked areas. Find the cause, then lift the lock per area: Administration → Folder retention or'));
 			$output->writeln('  occ folder_retention:run --unblock=<' . $this->l->t('key') . '>');
 		}

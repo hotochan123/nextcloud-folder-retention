@@ -37,7 +37,7 @@ class PeriodTest extends TestCase {
 		yield '31.08. → 30.09.' => [1, PeriodUnit::Month, '2026-08-31 10:00', '2026-09-30 10:00'];
 		yield 'Jahreswechsel' => [2, PeriodUnit::Month, '2026-12-15 10:00', '2027-02-15 10:00'];
 		yield '12 Monate' => [12, PeriodUnit::Month, '2026-03-01 00:00', '2027-03-01 00:00'];
-		// Zeitumstellung 25.10.2026: Uhrzeit bleibt kalendarisch gleich (Tag hat 25 h)
+		// DST change 25.10.2026: wall-clock time stays the same on the calendar (day has 25 h)
 		yield 'über Zeitumstellung' => [1, PeriodUnit::Day, '2026-10-24 12:00', '2026-10-25 12:00'];
 	}
 

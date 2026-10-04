@@ -8,19 +8,19 @@ use InvalidArgumentException;
 use OCP\IL10N;
 
 /**
- * Unveränderliche Regel, wie sie der Resolver sieht (entkoppelt von der DB-Entity).
+ * Immutable rule as seen by the resolver (decoupled from the DB entity).
  */
 final class RetentionRule {
 	public function __construct(
 		public readonly ?int $id,
-		/** null = Standardregel */
+		/** null = default rule */
 		public readonly ?int $folderId,
 		public readonly Period $period,
-		/** null nur bei der Standardregel */
+		/** null only for the default rule */
 		public readonly ?Scope $scope,
 		public readonly Basis $basis = Basis::Created,
 		public readonly bool $notify = false,
-		/** Standardregel für persönliche Ordner (statt der allgemeinen) */
+		/** default rule for personal folders (instead of the general one) */
 		public readonly bool $personal = false,
 	) {
 		if ($folderId === null && $scope !== null) {

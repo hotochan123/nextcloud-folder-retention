@@ -14,7 +14,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Standardregeln bei Neuinstallation und Update: neu immer „Nie“, Vorhandenes bleibt.
+ * Default rules on fresh install and update: new ones always "Never", existing ones stay.
  */
 class RuleServiceTest extends TestCase {
 	private RuleMapper&MockObject $mapper;
@@ -38,7 +38,7 @@ class RuleServiceTest extends TestCase {
 		$settings->method('includePersonal')->willReturnCallback(fn () => $this->includePersonal);
 		$time = $this->createMock(ITimeFactory::class);
 		$time->method('getTime')->willReturn(1000);
-		// IDBConnection lässt sich ohne Doctrine nicht mocken; die Standardregeln brauchen es nicht
+		// IDBConnection cannot be mocked without Doctrine; the default rules do not need it
 		$service = (new \ReflectionClass(RuleService::class))->newInstanceWithoutConstructor();
 		foreach (['mapper' => $this->mapper, 'time' => $time, 'settings' => $settings] as $name => $value) {
 			(new \ReflectionProperty(RuleService::class, $name))->setValue($service, $value);
@@ -73,7 +73,7 @@ class RuleServiceTest extends TestCase {
 	}
 
 	public function testExistingRulesAreNotTouchedOnUpdate(): void {
-		// Prod: allgemein 1 Monat, persönlich nie – bewusst so eingestellt
+		// Prod: general 1 month, personal never – deliberately configured this way
 		$this->existing['general'] = $this->rule(null, 1, PeriodUnit::Month);
 		$this->existing['personal'] = $this->rule(Rule::TARGET_PERSONAL, null, PeriodUnit::Never);
 		$service = $this->service();
@@ -87,7 +87,7 @@ class RuleServiceTest extends TestCase {
 	}
 
 	public function testUpgradeWithoutPersonalRuleAddsNeverForPersonal(): void {
-		// Update von ≤ 0.5 mit Frist an der allgemeinen Regel, Schalter „auch persönlich“ aus
+		// Update from ≤ 0.5 with a retention period on the general rule, "personal too" switch off
 		$this->existing['general'] = $this->rule(null, 1, PeriodUnit::Month);
 		$this->service()->ensurePersonalDefault();
 

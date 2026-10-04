@@ -24,7 +24,7 @@ class RuleMapper extends QBMapper {
 		return $this->findEntities($qb);
 	}
 
-	/** @param bool $personal true = Standardregel für persönliche Ordner */
+	/** @param bool $personal true = default rule for personal folders */
 	public function findDefault(bool $personal = false): ?Rule {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')->from($this->getTableName())

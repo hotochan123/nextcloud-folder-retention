@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\Model;
 
 /**
- * Bewertung einer Datei: welche Regel gilt, ab wann sie gelöscht werden darf.
+ * Evaluation of a file: which rule applies and from when it may be deleted.
  */
 final class Decision {
 	public const SKIP_NEVER = 'never';
@@ -16,7 +16,7 @@ final class Decision {
 		public readonly FileRow $file,
 		public readonly Resolution $resolution,
 		public readonly ?ReferenceDate $reference,
-		/** null = wird nie gelöscht (siehe $skipReason) */
+		/** null = never deleted (see $skipReason) */
 		public readonly ?int $expiresAt,
 		public readonly ?string $skipReason = null,
 	) {

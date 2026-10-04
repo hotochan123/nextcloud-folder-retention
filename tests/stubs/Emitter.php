@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace OC\Hooks;
 
 /**
- * Stellvertreter für die private Schnittstelle, von der OCP\Files\IRootFolder erbt –
- * nextcloud/ocp liefert sie nicht mit, ohne sie lässt sich IRootFolder nicht mocken.
+ * Stand-in for the private interface that OCP\Files\IRootFolder extends –
+ * nextcloud/ocp does not ship it, and without it IRootFolder cannot be mocked.
  */
 interface Emitter {
 	public function listen($scope, $method, callable $callback);

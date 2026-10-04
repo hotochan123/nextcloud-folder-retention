@@ -5,21 +5,21 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\Model;
 
 /**
- * Ergebnis der Regelauflösung: welche Regel gilt und woher sie kommt.
+ * Result of rule resolution: which rule applies and where it comes from.
  */
 final class Resolution {
 	public function __construct(
 		public readonly RetentionRule $rule,
 		/**
-		 * Abstand zum Ordner, an dem die Regel hängt: 0 = direkter Elternordner
-		 * (bzw. der abgefragte Ordner selbst), 1 = dessen Elternordner, …;
-		 * null = Standardregel.
+		 * Distance to the folder the rule is attached to: 0 = direct parent folder
+		 * (or the queried folder itself), 1 = its parent folder, …;
+		 * null = default rule.
 		 */
 		public readonly ?int $depth,
 	) {
 	}
 
-	/** Regel hängt direkt am abgefragten Ordner („Eigene Regel“) */
+	/** Rule is attached directly to the queried folder ("Own rule") */
 	public function isOwn(): bool {
 		return $this->depth === 0;
 	}
@@ -28,7 +28,7 @@ final class Resolution {
 		return $this->depth === null;
 	}
 
-	/** Ordner-ID, von dem geerbt wird; null bei Standardregel */
+	/** Folder ID inherited from; null for the default rule */
 	public function sourceFolderId(): ?int {
 		return $this->rule->folderId;
 	}

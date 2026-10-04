@@ -10,7 +10,7 @@ use OCA\FolderRetention\Model\FileRow;
 use OCA\FolderRetention\Model\RuleSet;
 
 /**
- * Bewertet eine Datei anhand ihrer Ordnerkette. Rein – keine DB, kein Dateisystem.
+ * Evaluates a file based on its folder chain. Pure – no DB, no file system.
  */
 class Evaluator {
 	public function __construct(
@@ -19,9 +19,9 @@ class Evaluator {
 	}
 
 	/**
-	 * @param list<int> $folderChain direkter Elternordner … Bereichswurzel
-	 * @param bool $defaultApplies false = Standardregel greift hier nicht (persönliche Dateien, Einstellung aus)
-	 * @param int $now Zukunftswerte im Bezugsdatum werden darauf gekappt
+	 * @param list<int> $folderChain direct parent folder … area root
+	 * @param bool $defaultApplies false = default rule does not apply here (personal files, setting off)
+	 * @param int $now future values in the reference date are capped to this
 	 */
 	public function evaluate(FileRow $file, array $folderChain, RuleSet $rules, bool $defaultApplies, DateTimeZone $tz, int $now): Decision {
 		$resolution = $this->resolver->resolve($folderChain, $rules->byFolderId, $rules->default);

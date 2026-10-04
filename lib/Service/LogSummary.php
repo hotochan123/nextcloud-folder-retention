@@ -9,16 +9,16 @@ use OCA\FolderRetention\Db\LogEntry;
 use OCA\FolderRetention\Db\LogMapper;
 
 /**
- * Übersicht des Protokolls: Einträge je Kalendertag (Zeitzone der Instanz, wie der CSV-Export)
- * und darin je Ordner. Ein Tag entspricht in der Regel einem nächtlichen Lauf. Gezählt wird in
- * PHP über die schmalen Spalten – „Tag“ hängt an der Zeitzone samt Sommerzeit, und den
- * Elternordner eines Pfads kann SQL nicht portabel bilden.
+ * Log overview: entries per calendar day (instance time zone, like the CSV export)
+ * and within that per folder. A day usually corresponds to one nightly run. Counting happens in
+ * PHP over the narrow columns – "day" depends on the time zone including daylight saving time, and
+ * SQL cannot derive the parent folder of a path portably.
  *
  * @psalm-import-type LogFilter from LogMapper
  * @psalm-type Counts = array{deleted: int, would_delete: int, skipped: int, error: int}
  */
 class LogSummary {
-	/** Statusgruppen wie der Statusfilter des Protokolls; categoryOf() in src/format.js spiegelt das */
+	/** Status groups like the log's status filter; categoryOf() in src/format.js mirrors this */
 	public const CATEGORIES = ['deleted', 'would_delete', 'skipped', 'error'];
 
 	public function __construct(
@@ -28,8 +28,8 @@ class LogSummary {
 	}
 
 	/**
-	 * Tage neueste zuerst; total = Zahl aller Tage mit Einträgen. Liest dafür alle passenden
-	 * Zeilen (schmal, in Blöcken) – bei sehr großem Protokoll die Zählung in SQL verlagern.
+	 * Days newest first; total = number of all days with entries. Reads all matching
+	 * rows for this (narrow, in chunks) – for a very large log, move the counting into SQL.
 	 *
 	 * @param LogFilter $filter
 	 * @return array{days: list<array{date: string, from: int, to: int, total: int, counts: Counts}>, total: int}
@@ -59,8 +59,8 @@ class LogSummary {
 	}
 
 	/**
-	 * @param LogFilter $filter meist mit from/to eines Tages
-	 * @return list<array{folder: string, total: int, counts: Counts}> nach Ordnerpfad sortiert
+	 * @param LogFilter $filter usually with from/to of one day
+	 * @return list<array{folder: string, total: int, counts: Counts}> sorted by folder path
 	 */
 	public function folders(array $filter): array {
 		$folders = [];
@@ -74,13 +74,13 @@ class LogSummary {
 		return array_values($folders);
 	}
 
-	/** Direkter Elternordner eines Protokollpfads; '' für einen Pfad ohne Ordner */
+	/** Direct parent folder of a log path; '' for a path without a folder */
 	public static function folderOf(string $path): string {
 		$pos = strrpos($path, '/');
 		return $pos === false ? '' : substr($path, 0, $pos);
 	}
 
-	/** Gruppen wie der Statusfilter des Protokolls */
+	/** Groups like the log's status filter */
 	public static function category(string $status): string {
 		return match (true) {
 			$status === LogEntry::STATUS_DELETED => 'deleted',

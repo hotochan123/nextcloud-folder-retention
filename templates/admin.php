@@ -1,4 +1,4 @@
 <?php
-/** Einstiegspunkt der Vue-App (src/main.js) */
+/** Entry point of the Vue app (src/main.js) */
 ?>
 <div id="folder-retention-admin"></div>

@@ -6,6 +6,6 @@ namespace OCA\FolderRetention\Service;
 
 use RuntimeException;
 
-/** Ungültige Eingabe – wird als HTTP 400 bzw. Kommando-Fehler ausgegeben. */
+/** Invalid input – reported as HTTP 400 or as a command error. */
 class ValidationException extends RuntimeException {
 }

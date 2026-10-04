@@ -44,11 +44,11 @@ class LogEntry extends Entity implements JsonSerializable {
 	public const STATUS_SKIPPED_CHANGED = 'skipped_changed';
 	public const STATUS_ERROR = 'error';
 	/**
-	 * Datei ist weg, aber nicht im Papierkorb angekommen – Nextcloud hat am Papierkorb vorbei
-	 * gelöscht. Zählt als Fehler; der Bereich wird danach gesperrt (Settings::blockRoot).
+	 * File is gone but never arrived in the trash bin – Nextcloud deleted it bypassing the
+	 * trash bin. Counts as an error; the area is locked afterwards (Settings::blockRoot).
 	 */
 	public const STATUS_DELETED_FINAL = 'deleted_final';
-	/** Nur Rückmeldung an occ, wird nicht protokolliert: Bereich gesperrt, nichts versucht */
+	/** Feedback to occ only, not logged: area locked, nothing attempted */
 	public const STATUS_SKIPPED_BLOCKED = 'skipped_blocked';
 
 	protected $fileId;

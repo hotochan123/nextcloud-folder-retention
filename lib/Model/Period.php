@@ -10,7 +10,7 @@ use InvalidArgumentException;
 use OCP\IL10N;
 
 /**
- * Aufbewahrungsfrist, z. B. „2 Wochen“ oder „nie löschen“.
+ * Retention period, e.g. "2 weeks" or "never delete".
  */
 final class Period {
 	public const MAX_VALUE = 3650;
@@ -40,11 +40,11 @@ final class Period {
 	}
 
 	/**
-	 * Zeitpunkt, ab dem eine Datei mit Bezugsdatum $reference gelöscht werden darf.
-	 * Kalendarisch in $tz gerechnet (Sommerzeit!). Monate werden auf das Monatsende
-	 * begrenzt: 31.01. + 1 Monat = 28./29.02., nicht 03.03.
+	 * Point in time from which a file with reference date $reference may be deleted.
+	 * Calculated by calendar in $tz (daylight saving time!). Months are clamped to the end of
+	 * the month: Jan 31 + 1 month = Feb 28/29, not Mar 3.
 	 *
-	 * @return int|null Unix-Timestamp, null bei „nie löschen“
+	 * @return int|null Unix timestamp, null for "never delete"
 	 */
 	public function expiresAt(int $reference, DateTimeZone $tz): ?int {
 		if ($this->isNever()) {

@@ -10,14 +10,14 @@ use OCP\Migration\IOutput;
 use OCP\Migration\IRepairStep;
 
 /**
- * Uninstall-Schritt: läuft bei jedem Deaktivieren (occ app:disable, Weboberfläche, automatisches
- * Abschalten beim Nextcloud-Update) und bei occ app:remove ohne --keep-data.
+ * Uninstall step: runs on every disable (occ app:disable, web UI, automatic
+ * disabling during a Nextcloud update) and on occ app:remove without --keep-data.
  *
- * Nextcloud löscht beim Entfernen weder App-Config noch Tabellen noch Migrationsstand. Eine
- * spätere Neuinstallation liefe deshalb mit den alten Einstellungen weiter – auch mit
- * ausgeschalteter Simulation, also schon in der ersten Nacht scharf nach den alten Fristen.
- * Darum hier den Simulationsmodus einschalten: Wer die App wieder aktiviert, schaltet bewusst scharf.
- * Regeln, Protokoll und alles andere bleiben unverändert.
+ * On removal Nextcloud deletes neither the app config nor the tables nor the migration state. A
+ * later reinstall would therefore carry on with the old settings – including with
+ * simulation switched off, i.e. deleting for real by the old retention periods from the very first night.
+ * So switch simulation mode on here: whoever re-enables the app must deliberately switch to live deletion.
+ * Rules, log and everything else stay unchanged.
  */
 class SimulationOnDisable implements IRepairStep {
 	public function __construct(
@@ -31,7 +31,7 @@ class SimulationOnDisable implements IRepairStep {
 	}
 
 	public function run(IOutput $output): void {
-		// immer schreiben: auch „nie gesetzt“ wird so zu einem festen AN
+		// always write: this also turns "never set" into an explicit ON
 		$this->settings->setSimulation(true);
 		$output->info($this->l->t('folder_retention: simulation mode switched on – after re-enabling nothing is deleted until it is deliberately switched off'));
 	}

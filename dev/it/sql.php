@@ -1,12 +1,12 @@
 <?php
-// Kleiner SQLite-Helfer für den Integrations-Harness (läuft IM Wegwerf-Container).
-// Aufruf: php sql.php "SELECT … WHERE x = ?" [param …]
-// Ausgabe: eine Zeile je Ergebniszeile, Spalten mit Tab getrennt, NULL als leere Zeichenkette.
+// Small SQLite helper for the integration harness (runs INSIDE the throwaway container).
+// Usage: php sql.php "SELECT … WHERE x = ?" [param …]
+// Output: one line per result row, columns separated by tabs, NULL as an empty string.
 declare(strict_types=1);
 
 $db = new PDO('sqlite:' . (getenv('FRET_DB') ?: '/var/www/html/data/nextcloud.db'));
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-// Nextcloud schreibt parallel (Job, WebDAV) – lieber warten als „database is locked“
+// Nextcloud writes in parallel (job, WebDAV) – better to wait than get "database is locked"
 $db->setAttribute(PDO::ATTR_TIMEOUT, 60);
 
 $stmt = $db->prepare($argv[1] ?? '');

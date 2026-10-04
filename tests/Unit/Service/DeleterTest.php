@@ -34,7 +34,7 @@ use Psr\Log\NullLogger;
 
 require_once __DIR__ . '/../../stubs/Emitter.php';
 
-/** Stellvertreter für LocalHomeMountProvider (Deleter prüft per is_a auf IHomeMountProvider) */
+/** Stand-in for LocalHomeMountProvider (Deleter checks via is_a for IHomeMountProvider) */
 final class TestHomeMountProvider implements IHomeMountProvider {
 	public function getHomeMountForUser(IUser $user, IStorageFactory $loader) {
 		return null;
@@ -42,70 +42,70 @@ final class TestHomeMountProvider implements IHomeMountProvider {
 }
 
 /**
- * Deleter mit Attrappen: Kontowechsel, Sicherheitsgurt, Papierkorb-Vorprüfung, Freigabe-Mounts,
- * Nachweis im Papierkorb. Ob Nextcloud wirklich in den Papierkorb verschiebt, prüft der Harness.
+ * Deleter with fakes: account switch, safety belt, trash bin precheck, share mounts,
+ * proof in the trash bin. Whether Nextcloud really moves to the trash bin is checked by the harness.
  */
 class DeleterTest extends TestCase {
 	private IUserSession&MockObject $session;
 	private ?IUser $activeUser = null;
-	/** von setupFilesystem eingerichtetes Konto → Wurzel von Filesystem::getView() */
+	/** account set up by setupFilesystem → root of Filesystem::getView() */
 	private ?string $viewRoot = null;
-	/** Sicherheitsgurt testen: Sicht zeigt trotz Einrichtung auf ein anderes Konto */
+	/** Test the safety belt: view points to a different account despite setup */
 	private ?string $forcedViewRoot = null;
 	private int $teardowns = 0;
 	/** @var list<string> */
 	private array $setups = [];
-	/** @var array<int, array{storage: int, path: string}|null> fileid → Filecache-Eintrag nach dem Löschen */
+	/** @var array<int, array{storage: int, path: string}|null> fileid → file cache entry after deletion */
 	private array $entryAfter = [];
-	/** @var array<int, bool> fileid → wurde delete() aufgerufen */
+	/** @var array<int, bool> fileid → was delete() called */
 	private array $deleteCalled = [];
-	/** @var array<string, list<File>> uid → Knoten, die getById liefert */
+	/** @var array<string, list<File>> uid → nodes returned by getById */
 	private array $nodes = [];
-	/** @var array<string, bool> uid → files_trashbin aktiv */
+	/** @var array<string, bool> uid → files_trashbin enabled */
 	private array $trashFor = [];
 	private string $trashbinSize = '-1';
-	/** trashbin_size mit falschem Typ gespeichert (occ trashbin:size) */
+	/** trashbin_size stored with the wrong type (occ trashbin:size) */
 	private bool $trashbinSizeConflict = false;
 	private ?bool $groupTrash = null;
-	/** @var array<int, bool> fileid → steht in oc_group_folders_trash (vor $groupTrash) */
+	/** @var array<int, bool> fileid → is listed in oc_group_folders_trash (before $groupTrash) */
 	private array $groupTrashIds = [];
-	/** @var array<int, array{name: string, time: int}> alte fileid → Eintrag in oc_group_folders_trash */
+	/** @var array<int, array{name: string, time: int}> old fileid → entry in oc_group_folders_trash */
 	private array $groupTrashRows = [];
-	/** @var array<string, string> uid → Quota wie IUser::getQuota */
+	/** @var array<string, string> uid → quota as from IUser::getQuota */
 	private array $quota = [];
-	/** @var array<int, string> Storage → Kennung (oc_storages.id); ohne Eintrag „home::…“ */
+	/** @var array<int, string> storage → identifier (oc_storages.id); without entry "home::…" */
 	private array $storageIds = [];
-	/** @var array<string, int> "storage:pfad" → Größe im Filecache */
+	/** @var array<string, int> "storage:path" → size in the file cache */
 	private array $sizes = [];
 	private ?int $groupQuota = -3;
-	/** @var list<int> fileid → delete() wirft (Papierkorb-Backend kaputt) */
+	/** @var list<int> fileid → delete() throws (trash bin backend broken) */
 	private array $deleteThrows = [];
-	/** @var array<int, string> fileid → delete() wirft LockedException mit diesem Pfad */
+	/** @var array<int, string> fileid → delete() throws LockedException with this path */
 	private array $deleteLocked = [];
-	/** @var array<string, bool> uid → Knoten ist löschbar (Gruppenrechte/ACL) */
+	/** @var array<string, bool> uid → node is deletable (group permissions/ACL) */
 	private array $deletable = [];
-	/** @var array<int, int|null> fileid → Größe der Versionen (null = unbekannt) */
+	/** @var array<int, int|null> fileid → size of the versions (null = unknown) */
 	private array $versions = [];
 	private bool $versionsApp = true;
 	private int $resumes = 0;
 	private bool $cli = true;
 	private bool $skipHeader = false;
-	/** Uhr für Papierkorb-Namen „<name>.d<Sekunde>“; pause() lässt sie eine Sekunde weiterlaufen */
+	/** Clock for trash bin names "<name>.d<second>"; pause() advances it by one second */
 	private int $clock = 100;
 	private int $pauses = 0;
-	/** @var (callable(): void)|null läuft bei jedem pause() – z. B. Sync-Client ersetzt die Datei */
+	/** @var (callable(): void)|null runs on every pause() – e.g. a sync client replaces the file */
 	private $onPause = null;
-	/** @var array<int, int> fileid → mtime, die der Knoten jetzt meldet (Datei inzwischen geändert) */
+	/** @var array<int, int> fileid → mtime the node reports now (file changed in the meantime) */
 	private array $mtimeNow = [];
-	/** @var array<string, int> "storage:name.dSekunde" → fileid im Papierkorb (wie files_trashbin) */
+	/** @var array<string, int> "storage:name.dSecond" → fileid in the trash bin (like files_trashbin) */
 	private array $trashSlots = [];
-	/** @var list<string> Reihenfolge: resume / delete:<id> */
+	/** @var list<string> order: resume / delete:<id> */
 	private array $calls = [];
-	/** @var list<string> im Filecache nachgesehene Papierkorb-Pfade „storage:pfad“ */
+	/** @var list<string> trash bin paths looked up in the file cache "storage:path" */
 	private array $trashLookups = [];
 
 	protected function setUp(): void {
-		// prozessweiter Merker (übersteht releaseContext) – zwischen Tests leeren
+		// process-wide marker (survives releaseContext) – clear between tests
 		(new \ReflectionProperty(Deleter::class, 'unreliablePaths'))->setValue(null, []);
 	}
 
@@ -162,7 +162,7 @@ class DeleterTest extends TestCase {
 		});
 		$fileCache->method('storageStringId')->willReturnCallback(fn (int $storage) => array_key_exists($storage, $this->storageIds) ? $this->storageIds[$storage] : "home::s$storage");
 		$fileCache->method('groupFolderQuota')->willReturnCallback(fn () => $this->groupQuota);
-		// Papierkorb-Einträge laut Filecache (trashSlots, solange die Datei noch dort liegt)
+		// trash bin entries according to the file cache (trashSlots, as long as the file is still there)
 		$fileCache->method('getIdByPath')->willReturnCallback(function (int $storage, string $path) {
 			$this->trashLookups[] = "$storage:$path";
 			$id = $this->trashSlots[$storage . ':' . basename($path)] ?? null;
@@ -226,7 +226,7 @@ class DeleterTest extends TestCase {
 	}
 
 	/**
-	 * Knoten in der Sicht von $uid; delete() verschiebt ihn laut $trashPath (null = endgültig weg).
+	 * Node in the view of $uid; delete() moves it according to $trashPath (null = permanently gone).
 	 */
 	private function node(string $uid, FileRow $f, string $provider, ?string $trashPath, bool $shared = false, ?int $storageId = null): void {
 		$cache = $this->createMock(ICache::class);
@@ -254,11 +254,11 @@ class DeleterTest extends TestCase {
 				throw new \OCP\Lock\LockedException($this->deleteLocked[$f->fileId]);
 			}
 			if ($shared) {
-				return; // nur die Freigabe wäre weg, die Datei bleibt
+				return; // only the share would be gone, the file stays
 			}
 			$this->entryAfter[$f->fileId] = $trashPath === null ? null : ['storage' => $f->storageId, 'path' => $trashPath];
 			if ($trashPath !== null) {
-				// wie Trashbin::move2trash: Ziel „<name>.d<time()>“, ein vorhandenes wird endgültig überschrieben
+				// like Trashbin::move2trash: target "<name>.d<time()>", an existing one is permanently overwritten
 				$slot = $f->storageId . ':' . preg_replace('#\.d\d+$#', '', basename($trashPath)) . '.d' . $this->clock;
 				if (isset($this->trashSlots[$slot]) && $this->trashSlots[$slot] !== $f->fileId) {
 					$this->entryAfter[$this->trashSlots[$slot]] = null;
@@ -329,7 +329,7 @@ class DeleterTest extends TestCase {
 	public function testTrashbinSizeCountsWholeTrashAndThisRun(): void {
 		$deleter = $this->deleter();
 		$this->trashbinSize = '1000';
-		$this->sizes['1:files_trashbin'] = 100; // Größe wird im Lauf nicht nachgezogen
+		$this->sizes['1:files_trashbin'] = 100; // size is not updated during the run
 		$files = [];
 		foreach ([1, 2, 3] as $id) {
 			$files[$id] = $this->file($id, 1, "files/f$id.txt", 400);
@@ -355,9 +355,9 @@ class DeleterTest extends TestCase {
 		$this->node('alice', $small, TestHomeMountProvider::class, 'files_trashbin/files/klein.bin.d1');
 		$this->node('alice', $big, TestHomeMountProvider::class, 'files_trashbin/files/gross.bin.d1');
 
-		// klein: frei nach dem Verschieben 20 − 16 = 4 MB, davon 50 % = 2 MB > 1 MB im Papierkorb
+		// small: free after the move 20 − 16 = 4 MB, 50 % of that = 2 MB > 1 MB in the trash bin
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($this->homeRoot('alice', 1), $small)[0]);
-		// groß: frei 20 − 12 = 8 MB, 50 % = 4 MB, Papierkorb danach 1 + 4 = 5 MB → Expire räumt
+		// large: free 20 − 12 = 8 MB, 50 % = 4 MB, trash bin afterwards 1 + 4 = 5 MB → expire cleans up
 		[$status, $message] = $deleter->delete($this->homeRoot('alice', 1), $big);
 		$this->assertSame(LogEntry::STATUS_ERROR, $status);
 		$this->assertStringContainsString('Quota', (string)$message);
@@ -365,9 +365,9 @@ class DeleterTest extends TestCase {
 	}
 
 	/**
-	 * Objektspeicher als Primärspeicher: kein HomeCache, die Konto-Wurzel zählt files/,
-	 * Papierkorb und Versionen – und files_trashbin rechnet mit ihr. Zahlen aus dem Review
-	 * (Quota 10 MB, 3 MB bleibend, 1,4 MB schon im Papierkorb, 2 MB fällig; Harness S23).
+	 * Object storage as primary storage: no HomeCache, the account root counts files/,
+	 * trash bin and versions – and files_trashbin calculates with it. Numbers from the review
+	 * (quota 10 MB, 3 MB remaining, 1.4 MB already in the trash bin, 2 MB due; harness S23).
 	 */
 	public function testObjectStoreRootIncludesTrashForQuota(): void {
 		$deleter = $this->deleter();
@@ -380,8 +380,8 @@ class DeleterTest extends TestCase {
 		$f = $this->file(1, 1, 'files/target.bin', 2 * $mb);
 		$this->node('alice', $f, TestHomeMountProvider::class, 'files_trashbin/files/target.bin.d1');
 
-		// files/ allein: frei 10 − 3 = 7 MB, 50 % = 3,5 MB > 3,4 MB – Nextcloud aber: Wurzel
-		// 6,4 MB, frei 3,6 MB, 50 % = 1,8 MB < 3,4 MB → Expire räumt beide Einträge
+		// files/ alone: free 10 − 3 = 7 MB, 50 % = 3.5 MB > 3.4 MB – but Nextcloud: root
+		// 6.4 MB, free 3.6 MB, 50 % = 1.8 MB < 3.4 MB → expire cleans up both entries
 		[$status, $message] = $deleter->delete($this->homeRoot('alice', 1), $f);
 
 		$this->assertSame(LogEntry::STATUS_ERROR, $status);
@@ -390,9 +390,9 @@ class DeleterTest extends TestCase {
 	}
 
 	/**
-	 * Lokaler Speicher (HomeCache): es zählt files/ ohne die Datei. Die Wurzelzeile im Filecache
-	 * ist dort veraltet (Harness S12: nach dem Entfernen der Skeleton-Dateien noch 62,5 MB) und
-	 * darf nicht zählen. Unbekannte Speicherart rechnet vorsichtig mit der Wurzel.
+	 * Local storage (HomeCache): files/ without the file counts. The root row in the file cache
+	 * is stale there (harness S12: still 62.5 MB after removing the skeleton files) and
+	 * must not count. An unknown storage type cautiously calculates with the root.
 	 */
 	public function testLocalHomeIgnoresStaleRootRow(): void {
 		$mb = 1024 * 1024;
@@ -446,21 +446,21 @@ class DeleterTest extends TestCase {
 		$this->assertStringContainsString('angehalten', (string)$message);
 		$this->assertNotNull($deleter->haltReason());
 
-		// Anderes Konto: nicht einmal versucht – TrashManager könnte noch pausiert sein
+		// Other account: not even attempted – TrashManager could still be paused
 		[$status] = $deleter->delete($this->homeRoot('bob', 2), $b);
 		$this->assertSame(LogEntry::STATUS_ERROR, $status);
 		$this->assertArrayNotHasKey(2, $this->deleteCalled);
 
-		// Nächster Lauf beginnt frisch
+		// Next run starts fresh
 		$deleter->releaseContext();
 		$this->assertNull($deleter->haltReason());
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($this->homeRoot('bob', 2), $b)[0]);
 	}
 
 	/**
-	 * LegacyTrashBackend räumt deletedFiles nach einer Ausnahme nicht ab: Ein späterer Lauf im
-	 * selben Prozess (background-job:worker) löschte denselben Pfad endgültig. Daher nie wieder
-	 * in diesem Prozess – auch nicht nach releaseContext() und mit neuer Deleter-Instanz.
+	 * LegacyTrashBackend does not clear deletedFiles after an exception: a later run in the
+	 * same process (background-job:worker) deleted the same path permanently. Hence never again
+	 * in this process – not even after releaseContext() and with a new Deleter instance.
 	 */
 	public function testPathWithExceptionStaysBlockedForTheWholeProcess(): void {
 		$deleter = $this->deleter();
@@ -471,7 +471,7 @@ class DeleterTest extends TestCase {
 		$deleter->releaseContext();
 		$this->assertNull($deleter->haltReason());
 
-		// Ursache „behoben“ – der Papierkorb hielte den Pfad trotzdem für schon verschoben
+		// cause "fixed" – the trash bin would still consider the path already moved
 		$this->deleteThrows = [];
 		$this->deleteCalled = [];
 		foreach ([$deleter, $this->deleter()] as $d) {
@@ -481,7 +481,7 @@ class DeleterTest extends TestCase {
 			$this->assertArrayNotHasKey(1, $this->deleteCalled, 'nicht einmal versucht');
 			$this->assertNull($d->haltReason(), 'andere Dateien laufen weiter');
 		}
-		// Neue Datei am selben Pfad (andere ID): ebenfalls nicht
+		// New file at the same path (different ID): not either
 		$a2 = $this->file(5, 1, 'files/a.txt');
 		$this->assertSame(LogEntry::STATUS_ERROR, $deleter->delete($this->homeRoot('alice', 1), $a2)[0]);
 		$this->assertArrayNotHasKey(5, $this->deleteCalled);
@@ -493,7 +493,7 @@ class DeleterTest extends TestCase {
 		$b = $this->file(2, 1, 'files/b.txt');
 		$this->node('alice', $a, TestHomeMountProvider::class, 'files_trashbin/files/a.txt.d1');
 		$this->node('alice', $b, TestHomeMountProvider::class, 'files_trashbin/files/b.txt.d1');
-		// View::unlink holt die Sperre vor dem Papierkorb – ein lesender Sync-Client reicht
+		// View::unlink acquires the lock before the trash bin – a reading sync client is enough
 		$this->deleteLocked = [1 => '/alice/files/a.txt'];
 
 		[$status] = $deleter->delete($this->homeRoot('alice', 1), $a);
@@ -506,7 +506,7 @@ class DeleterTest extends TestCase {
 		$deleter = $this->deleter();
 		$f = $this->file(1, 1, 'files/a.txt');
 		$this->node('alice', $f, TestHomeMountProvider::class, 'files_trashbin/files/a.txt.d1');
-		// Sperre im Papierkorb: Zustand von TrashManager unklar
+		// lock inside the trash bin: state of TrashManager unclear
 		$this->deleteLocked = [1 => 'files_trashbin/files/a.txt.d1'];
 
 		[$status] = $deleter->delete($this->homeRoot('alice', 1), $f);
@@ -521,8 +521,8 @@ class DeleterTest extends TestCase {
 		$b = $this->file(2, 1, 'files/b.txt');
 		$this->node('alice', $a, TestHomeMountProvider::class, 'files_trashbin/files/a.txt.d1');
 		$this->node('alice', $b, TestHomeMountProvider::class, 'files_trashbin/files/b.txt.d1');
-		// View::lockFile sperrt die Elternordner geteilt – vor dem Papierkorb; ein anderer Prozess
-		// benennt „Projekt“ gerade um (exklusive Sperre)
+		// View::lockFile locks the parent folders shared – before the trash bin; another process
+		// is currently renaming "Projekt" (exclusive lock)
 		$this->deleteLocked = [1 => '/alice/files/Projekt'];
 
 		[$status, $message] = $deleter->delete($root, $a);
@@ -532,13 +532,13 @@ class DeleterTest extends TestCase {
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($root, $b)[0]);
 		$deleter->releaseContext();
 
-		// Sperre weg: im selben Prozess (occ background-job:worker) wieder löschbar
+		// lock gone: deletable again in the same process (occ background-job:worker)
 		$this->deleteLocked = [];
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($root, $a)[0], 'kein „Prozessneustart“-Fehler');
 	}
 
 	public function testLockOnAccountRootOrSiblingStillHalts(): void {
-		// „/alice“ sperren auch View-Operationen im Papierkorb; „/alice/files/Pro“ ist kein Elternordner
+		// "/alice" is also locked by View operations in the trash bin; "/alice/files/Pro" is not a parent folder
 		foreach (['/alice', '/alice/files/Pro'] as $i => $locked) {
 			$deleter = $this->deleter();
 			$f = $this->file(10 + $i, 1, "files/Projekt/a$i.txt");
@@ -555,7 +555,7 @@ class DeleterTest extends TestCase {
 		$f = $this->file(1, 7, '__groupfolders/3/a.txt');
 		$this->node('bob', $f, RootProvider::GROUPFOLDER_PROVIDER, '__groupfolders/trash/3/a.txt.d1');
 		$this->node('carol', $f, RootProvider::GROUPFOLDER_PROVIDER, '__groupfolders/trash/3/a.txt.d1');
-		$this->deletable['bob'] = false; // Lese-Gruppe bzw. ACL ohne Löschen
+		$this->deletable['bob'] = false; // read-only group or ACL without delete
 		$this->groupTrash = true;
 
 		$this->assertSame([LogEntry::STATUS_DELETED, $deleter->deletedVia('carol')], $deleter->delete($root, $f));
@@ -582,21 +582,21 @@ class DeleterTest extends TestCase {
 	public function testVersionsCountTowardsTrashQuota(): void {
 		$deleter = $this->deleter();
 		$mb = 1024 * 1024;
-		// Beispiel aus dem Review, verkleinert: Quota 100, files/ 90, Datei 2 + Versionen 4.5
+		// Example from the review, scaled down: quota 100, files/ 90, file 2 + versions 4.5
 		$this->quota['alice'] = '100 MB';
 		$this->sizes['1:files'] = 90 * $mb;
 		$f = $this->file(1, 1, 'files/bericht.docx', 2 * $mb);
 		$this->node('alice', $f, TestHomeMountProvider::class, 'files_trashbin/files/bericht.docx.d1');
 		$this->versions[1] = (int)(4.5 * $mb);
 
-		// frei nach dem Verschieben 100 − 88 = 12 MB, 50 % = 6 MB < 2 + 4,5 MB → Expire räumt
+		// free after the move 100 − 88 = 12 MB, 50 % = 6 MB < 2 + 4.5 MB → expire cleans up
 		[$status, $message] = $deleter->delete($this->homeRoot('alice', 1), $f);
 
 		$this->assertSame(LogEntry::STATUS_ERROR, $status);
 		$this->assertStringContainsString('Versionen', (string)$message);
 		$this->assertArrayNotHasKey(1, $this->deleteCalled);
 
-		// Ohne files_versions wandern keine Versionen mit – dann passt die Datei
+		// Without files_versions no versions move along – then the file fits
 		$this->versionsApp = false;
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($this->homeRoot('alice', 1), $f)[0]);
 	}
@@ -643,7 +643,7 @@ class DeleterTest extends TestCase {
 		$deleter = $this->deleter();
 		$f = $this->file(1, 1, 'files/a.txt');
 		$this->node('alice', $f, TestHomeMountProvider::class, 'files_trashbin/files/a.txt.d1');
-		// Nach der Neuprüfung in „Nie löschen“ verschoben – gleiche ID, gleiche mtime
+		// Moved to a "never delete" folder after the recheck – same ID, same mtime
 		$this->entryAfter[1] = ['storage' => 1, 'path' => 'files/Behalten/a.txt'];
 
 		[$status, $message] = $deleter->delete($this->homeRoot('alice', 1), $f);
@@ -676,7 +676,7 @@ class DeleterTest extends TestCase {
 	public function testNeverDeletesThroughShareMount(): void {
 		$deleter = $this->deleter();
 		$f = $this->file(1, 1, 'files/a.txt');
-		// Gleiche Datei-ID, einmal über eine Freigabe (CacheJail meldet den Quell-Storage), einmal im Home
+		// Same file ID, once via a share (CacheJail reports the source storage), once in the home
 		$this->node('alice', $f, TestHomeMountProvider::class, 'files_trashbin/files/a.txt.d1', shared: true);
 		$this->node('alice', $f, TestHomeMountProvider::class, 'files_trashbin/files/a.txt.d1');
 
@@ -699,7 +699,7 @@ class DeleterTest extends TestCase {
 		$deleter = $this->deleter();
 		$root = new RetentionRoot(RetentionRoot::KIND_TEAM, 7, 70, '__groupfolders/3', 'Team', ['bob', 'carol']);
 		$f = $this->file(1, 7, '__groupfolders/3/a.txt');
-		$this->trashFor['bob'] = false; // bob hat keinen Papierkorb (Gruppenfreigabe der App) → carol
+		$this->trashFor['bob'] = false; // bob has no trash bin (app's group share) → carol
 		$this->node('carol', $f, RootProvider::GROUPFOLDER_PROVIDER, '__groupfolders/trash/3/a.txt.d1');
 		$this->groupTrash = true;
 
@@ -708,8 +708,8 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testTeamFolderDeletesViaFirstSortedMemberAndNamesItInLog(): void {
-		// Papierkorb/Aktivität nennen das Konto als Löschenden – die Wahl darf nicht davon abhängen,
-		// wessen Dateisystem gerade eingerichtet ist (hier: carol nach ihrer eigenen Datei)
+		// Trash bin/activity name the account as the deleter – the choice must not depend on
+		// whose filesystem is currently set up (here: carol after her own file)
 		$deleter = $this->deleter();
 		$own = $this->file(2, 3, 'files/c.txt');
 		$this->node('carol', $own, TestHomeMountProvider::class, 'files_trashbin/files/c.txt.d1');
@@ -796,8 +796,8 @@ class DeleterTest extends TestCase {
 	}
 
 	/**
-	 * groupfolders mit Verschlüsselung kopiert in den Papierkorb: alte ID weg, Eintrag in
-	 * oc_group_folders_trash nennt sie weiter, die Datei steht unter neuer ID am Papierkorb-Ort.
+	 * groupfolders with encryption copies into the trash bin: old ID gone, the entry in
+	 * oc_group_folders_trash still names it, the file sits under a new ID at the trash bin location.
 	 */
 	private function encryptedTeamDelete(int $newId, bool $foreign = false): array {
 		$deleter = $this->deleter();
@@ -821,7 +821,7 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testTeamFolderTrashSlotOfOtherEntryIsPermanentDeletion(): void {
-		// Unter Name+Zeit liegt eine Datei, die einem anderen Papierkorb-Eintrag gehört
+		// Under name+time there is a file belonging to another trash bin entry
 		[[$status]] = $this->encryptedTeamDelete(98, true);
 		$this->assertSame(LogEntry::STATUS_DELETED_FINAL, $status);
 	}
@@ -879,7 +879,7 @@ class DeleterTest extends TestCase {
 		$this->assertSame(0, $this->teardowns);
 	}
 
-	// --- Papierkorb nach dem Lauf nie pausiert zurücklassen (NC 34, cron.php: Folgejobs) ---
+	// --- Never leave the trash bin paused after the run (NC 34, cron.php: subsequent jobs) ---
 
 	public function testReleaseContextAlwaysResumesTrash(): void {
 		$deleter = $this->deleter();
@@ -925,7 +925,7 @@ class DeleterTest extends TestCase {
 		$this->assertArrayNotHasKey(1, $this->deleteCalled);
 	}
 
-	// --- gleicher Name in derselben Sekunde: files_trashbin überschreibt <name>.d<time()> ---
+	// --- same name in the same second: files_trashbin overwrites <name>.d<time()> ---
 
 	public function testSameNameWaitsForNextSecondSoNothingIsOverwritten(): void {
 		$deleter = $this->deleter();
@@ -987,7 +987,7 @@ class DeleterTest extends TestCase {
 		$this->node('alice', $c, TestHomeMountProvider::class, 'files_trashbin/files/c.txt.d1');
 
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($root, $a)[0]);
-		// Eintrag von a geht beim Verschieben von b verloren (z. B. Uhr springt zurück)
+		// a's entry is lost when b is moved (e.g. clock jumps back)
 		$this->entryAfter[1] = null;
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($root, $b)[0], 'b selbst liegt im Papierkorb');
 
@@ -1011,7 +1011,7 @@ class DeleterTest extends TestCase {
 		$this->node('alice', $b, TestHomeMountProvider::class, 'files_trashbin/files/Bericht.txt.d1');
 
 		$deleter->delete($root, $a);
-		$this->entryAfter[1] = ['storage' => 1, 'path' => 'files/dA/Bericht.txt']; // vom Nutzer zurückgeholt
+		$this->entryAfter[1] = ['storage' => 1, 'path' => 'files/dA/Bericht.txt']; // restored by the user
 		$deleter->delete($root, $b);
 
 		$this->assertSame([], $deleter->takeLost());
@@ -1034,8 +1034,8 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testSameNameFromPreviousRunInSameSecondWaitsToo(): void {
-		// occ-Lauf 1 verschiebt A/Protokoll.pdf und gibt die Sperre frei; Lauf 2 (Speicher leer)
-		// will B/Protokoll.pdf noch in derselben Sekunde verschieben
+		// occ run 1 moves A/Protokoll.pdf and releases the lock; run 2 (memory empty)
+		// wants to move B/Protokoll.pdf in the same second
 		$deleter = $this->deleter();
 		$root = $this->homeRoot('alice', 1);
 		$a = $this->file(1, 1, 'files/A/Protokoll.pdf');
@@ -1044,7 +1044,7 @@ class DeleterTest extends TestCase {
 		$this->node('alice', $b, TestHomeMountProvider::class, 'files_trashbin/files/Protokoll.pdf.d1');
 
 		$this->assertSame([LogEntry::STATUS_DELETED, $deleter->deletedVia('alice')], $deleter->delete($root, $a));
-		$deleter->releaseContext(); // Laufende: Speicher des Laufs geleert
+		$deleter->releaseContext(); // end of run: the run's memory cleared
 		$this->assertSame([LogEntry::STATUS_DELETED, $deleter->deletedVia('alice')], $deleter->delete($root, $b));
 
 		$this->assertSame(1, $this->pauses, 'bis zur nächsten Sekunde gewartet');
@@ -1063,7 +1063,7 @@ class DeleterTest extends TestCase {
 		$this->node('bob', $b, RootProvider::GROUPFOLDER_PROVIDER, '__groupfolders/trash/3/scan.pdf.d1');
 
 		$this->assertSame(LogEntry::STATUS_DELETED, $this->deleter()->delete($root, $a)[0]);
-		// neuer Prozess (Hintergrundjob übernimmt die eben freigegebene Sperre)
+		// new process (background job takes over the lock just released)
 		$this->assertSame(LogEntry::STATUS_DELETED, $this->deleter()->delete($root, $b)[0]);
 
 		$this->assertSame(1, $this->pauses);
@@ -1091,7 +1091,7 @@ class DeleterTest extends TestCase {
 		$root = $this->homeRoot('alice', 1);
 		$b = $this->file(2, 1, 'files/B/Protokoll.pdf');
 		$this->node('alice', $b, TestHomeMountProvider::class, 'files_trashbin/files/Protokoll.pdf.d1');
-		// Eintrag „Protokoll.pdf.d<jede Sekunde>“ – z. B. Uhr steht
+		// entry "Protokoll.pdf.d<every second>" – e.g. clock stands still
 		$this->entryAfter[9] = ['storage' => 1, 'path' => 'files_trashbin/files/Protokoll.pdf.d100'];
 		$this->onPause = function () {
 			$this->trashSlots['1:Protokoll.pdf.d' . $this->clock] = 9;
@@ -1107,8 +1107,8 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testEarlierEntryEmptiedByUserLaterInRunIsNotReportedAsOverwritten(): void {
-		// bob/X/desktop.ini verschoben, bob leert danach seinen Papierkorb; später im selben Lauf
-		// kommt bob/Y/desktop.ini dran – kein „von Nextcloud überschrieben“, keine Sperre
+		// bob/X/desktop.ini moved, bob then empties his trash bin; later in the same run
+		// bob/Y/desktop.ini comes up – no "overwritten by Nextcloud", no block
 		$deleter = $this->deleter();
 		$root = $this->homeRoot('bob', 2);
 		$x = $this->file(1, 2, 'files/X/desktop.ini');
@@ -1117,8 +1117,8 @@ class DeleterTest extends TestCase {
 		$this->node('bob', $y, TestHomeMountProvider::class, 'files_trashbin/files/desktop.ini.d1');
 
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($root, $x)[0]);
-		$this->clock += 40; // Lauf arbeitet weiter
-		$this->entryAfter[1] = null; // Papierkorb geleert bzw. Eintrag abgelaufen
+		$this->clock += 40; // run keeps working
+		$this->entryAfter[1] = null; // trash bin emptied or entry expired
 		$this->assertSame([LogEntry::STATUS_DELETED, $deleter->deletedVia('bob')], $deleter->delete($root, $y));
 
 		$this->assertSame([], $deleter->takeLost(), 'kein Verlust durch die App');
@@ -1127,15 +1127,15 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testUserOverwritingInSameSecondIsFoundAtRunEnd(): void {
-		// App verschiebt a um 100; noch in Sekunde 100 löscht der Nutzer gleichnamig – Nextcloud
-		// überschreibt den Eintrag der App. Die App löscht diesen Namen danach nicht mehr.
+		// App moves a at 100; still in second 100 the user deletes a file of the same name – Nextcloud
+		// overwrites the app's entry. The app no longer deletes this name afterwards.
 		$deleter = $this->deleter();
 		$root = $this->homeRoot('alice', 1);
 		$a = $this->file(1, 1, 'files/dA/Bericht.txt');
 		$this->node('alice', $a, TestHomeMountProvider::class, 'files_trashbin/files/Bericht.txt.d1');
 
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($root, $a)[0]);
-		$this->entryAfter[1] = null; // vom Nutzer überschrieben
+		$this->entryAfter[1] = null; // overwritten by the user
 		$this->assertSame([], $deleter->takeLost(), 'während des Laufs nicht erkennbar');
 
 		$deleter->verifyRecentTrash();
@@ -1163,7 +1163,7 @@ class DeleterTest extends TestCase {
 		$this->clock++;
 		$deleter->delete($root, $new);
 		$deleter->delete($root, $kept);
-		$this->entryAfter[1] = null; // vor 11 s: kann ebenso der Nutzer geleert haben
+		$this->entryAfter[1] = null; // 11 s ago: could just as well have been emptied by the user
 		$this->entryAfter[2] = null;
 		$this->entryAfter[3] = null;
 
@@ -1176,14 +1176,14 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testUserOverwritingMidRunIsFoundAtRunEndEvenAfterLaterDeletions(): void {
-		// App verschiebt a um 100; noch in Sekunde 100 löscht der Nutzer gleichnamig – Nextcloud
-		// überschreibt den Eintrag der App. Danach löscht der Lauf noch über Sekunden andere Namen.
+		// App moves a at 100; still in second 100 the user deletes a file of the same name – Nextcloud
+		// overwrites the app's entry. Afterwards the run keeps deleting other names for seconds.
 		$deleter = $this->deleter();
 		$root = $this->homeRoot('alice', 1);
 		$a = $this->file(1, 1, 'files/A/bericht.pdf');
 		$this->node('alice', $a, TestHomeMountProvider::class, 'files_trashbin/files/bericht.pdf.d1');
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($root, $a)[0]);
-		// Nutzer löscht /B/bericht.pdf in derselben Sekunde: sein Eintrag ersetzt den der App
+		// User deletes /B/bericht.pdf in the same second: their entry replaces the app's
 		$this->trashSlots['1:bericht.pdf.d100'] = 99;
 		$this->entryAfter[99] = ['storage' => 1, 'path' => 'files_trashbin/files/bericht.pdf.d100'];
 		$this->entryAfter[1] = null;
@@ -1205,8 +1205,8 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testOlderEntryGoneWithoutReplacementIsNotReportedAtRunEnd(): void {
-		// Eintrag vom Anfang des Laufs fehlt, unter seinem Namen liegt nichts: Nutzer hat ihn
-		// endgültig gelöscht bzw. den Papierkorb geleert – kein Verlust durch die App
+		// Entry from the start of the run is missing, nothing under its name: the user deleted it
+		// permanently or emptied the trash bin – no loss caused by the app
 		$deleter = $this->deleter();
 		$root = $this->homeRoot('alice', 1);
 		$a = $this->file(1, 1, 'files/A/bericht.pdf');
@@ -1227,7 +1227,7 @@ class DeleterTest extends TestCase {
 		$deleter = $this->deleter();
 		$deleter->verifyRecentTrash();
 		$f = $this->file(1, 1, 'files/a.txt');
-		$this->node('alice', $f, TestHomeMountProvider::class, null); // endgültig weg – schon als deleted_final verbucht
+		$this->node('alice', $f, TestHomeMountProvider::class, null); // permanently gone – already recorded as deleted_final
 		$this->assertSame(LogEntry::STATUS_DELETED_FINAL, $deleter->delete($this->homeRoot('alice', 1), $f)[0]);
 		$deleter->verifyRecentTrash();
 		$this->assertSame(0, $this->pauses);
@@ -1235,7 +1235,7 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testEarlierEntryFromPreviousSecondIsStillRechecked(): void {
-		// eine Sekunde Spiel: Eintrag aus der Sekunde vor dem Löschversuch wird weiter nachgeprüft
+		// one second of slack: an entry from the second before the deletion attempt is still rechecked
 		$deleter = $this->deleter();
 		$root = $this->homeRoot('alice', 1);
 		$a = $this->file(1, 1, 'files/dA/Bericht.txt');
@@ -1244,7 +1244,7 @@ class DeleterTest extends TestCase {
 		$this->node('alice', $b, TestHomeMountProvider::class, 'files_trashbin/files/Bericht.txt.d1');
 
 		$deleter->delete($root, $a);
-		$this->clock++; // nächste Sekunde
+		$this->clock++; // next second
 		$this->entryAfter[1] = null;
 		$deleter->delete($root, $b);
 
@@ -1252,7 +1252,7 @@ class DeleterTest extends TestCase {
 		$this->assertNotNull($deleter->haltReason());
 	}
 
-	/** Papierkorb-Name wie Trashbin::getTrashFilename (NC 34/35), ohne „.d<Zeit>“ */
+	/** Trash bin name like Trashbin::getTrashFilename (NC 34/35), without ".d<time>" */
 	private static function ncTrashName(string $name): string {
 		$t = $name . '.d1791111730';
 		if (strlen($t) > 250) {
@@ -1292,7 +1292,7 @@ class DeleterTest extends TestCase {
 	}
 
 	public function testLongNamesAlwaysWaitForEachOtherAndAreRechecked(): void {
-		// Unterschied am Ende – files_trashbin kürzt das nicht weg, Versionen („.v<n>.d<Zeit>“) evtl. doch
+		// difference at the end – files_trashbin does not truncate it away, versions (".v<n>.d<time>") possibly do
 		$deleter = $this->deleter();
 		$root = $this->homeRoot('alice', 1);
 		$a = $this->file(1, 1, 'files/' . str_repeat('z', 225) . '-1.txt');
@@ -1305,7 +1305,7 @@ class DeleterTest extends TestCase {
 		$deleter->delete($root, $a);
 		$deleter->delete($root, $c);
 		$this->assertSame(0, $this->pauses, 'kurzer Name wartet nicht auf lange');
-		$this->entryAfter[1] = null; // Eintrag von a geht beim Verschieben von b verloren
+		$this->entryAfter[1] = null; // a's entry is lost when b is moved
 		$this->assertSame(LogEntry::STATUS_DELETED, $deleter->delete($root, $b)[0]);
 
 		$this->assertSame(1, $this->pauses);
@@ -1323,7 +1323,7 @@ class DeleterTest extends TestCase {
 		$this->node('alice', $a, TestHomeMountProvider::class, 'files_trashbin/files/scan.pdf.d1');
 		$this->node('alice', $b, TestHomeMountProvider::class, 'files_trashbin/files/scan.pdf.d1');
 		$deleter->delete($root, $a);
-		// Während des Wartens verschiebt jemand b nach „Behalten“ (gleiche ID, gleiche mtime)
+		// While waiting, someone moves b to "Behalten" (same ID, same mtime)
 		$this->onPause = function () {
 			$this->entryAfter[2] = ['storage' => 1, 'path' => 'files/Behalten/scan.pdf'];
 		};
@@ -1343,7 +1343,7 @@ class DeleterTest extends TestCase {
 		$this->node('alice', $a, TestHomeMountProvider::class, 'files_trashbin/files/scan.pdf.d1');
 		$this->node('alice', $b, TestHomeMountProvider::class, 'files_trashbin/files/scan.pdf.d1');
 		$deleter->delete($root, $a);
-		// Während des Wartens lädt ein Sync-Client eine neue Fassung hoch (gleiche ID, neue mtime)
+		// While waiting, a sync client uploads a new version (same ID, new mtime)
 		$this->onPause = function () {
 			$this->mtimeNow[2] = 999;
 		};

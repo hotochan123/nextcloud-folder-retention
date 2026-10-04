@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\Model;
 
 enum Scope: string {
-	/** „Auch Unterordner“ – Unterordner ohne eigene Regel erben */
+	/** "Subfolders too" – subfolders without their own rule inherit */
 	case Inherit = 'inherit';
-	/** „Nur diese Ebene“ – gilt nur für Dateien direkt in diesem Ordner */
+	/** "This level only" – applies only to files directly in this folder */
 	case Here = 'here';
 }

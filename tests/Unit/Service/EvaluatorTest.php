@@ -46,7 +46,7 @@ class EvaluatorTest extends TestCase {
 	}
 
 	public function testDefaultRuleUsesUploadTime(): void {
-		// Erstellzeit des Clients (Jahre zurück) zählt nicht – nur die Ablage in Nextcloud
+		// The client's creation time (years back) does not count – only storage in Nextcloud
 		$f = $this->file(5, $this->ts('2019-01-01 12:00'), $this->ts('2026-08-01 12:00'), $this->ts('2026-09-20 12:00'));
 		$d = $this->evaluator->evaluate($f, [5, 1], $this->rules, true, $this->tz, $this->now);
 		$this->assertSame($this->ts('2026-09-01 12:00'), $d->expiresAt);
@@ -56,7 +56,7 @@ class EvaluatorTest extends TestCase {
 	}
 
 	public function testWithoutUploadTimeUsesFirstSeenNotMtime(): void {
-		// files:scan bzw. Altbestand: alte mtime darf nicht sofort fällig machen
+		// files:scan or legacy files: an old mtime must not make a file due immediately
 		$f = new FileRow(99, 1, 5, 'x/y.txt', $this->ts('2010-01-01'), $this->ts('2010-01-01'), 0, firstSeen: $this->ts('2026-12-01 12:00'));
 		$d = $this->evaluator->evaluate($f, [5, 1], $this->rules, true, $this->tz, $this->now);
 		$this->assertSame('seen', $d->reference->source);
@@ -78,7 +78,7 @@ class EvaluatorTest extends TestCase {
 	}
 
 	public function testRestoredFileCountsFromLastDeletion(): void {
-		// Datei wurde gelöscht und am 2026-12-30 wiederhergestellt: Bezugsdatum = Löschung, nicht Upload
+		// File was deleted and restored on 2026-12-30: reference date = deletion, not upload
 		$f = new FileRow(99, 1, 5, 'x/y.txt', $this->ts('2026-01-01'), null, $this->ts('2026-01-01'), lastDeleted: $this->ts('2026-12-30 03:00'));
 		$d = $this->evaluator->evaluate($f, [5, 1], $this->rules, true, $this->tz, $this->now);
 		$this->assertSame('restored', $d->reference->source);
@@ -87,7 +87,7 @@ class EvaluatorTest extends TestCase {
 	}
 
 	public function testFileRestoredLaterCountsFromFirstSeenAfterRestore(): void {
-		// Gelöscht 2026-11-01, erst am 2026-12-30 wiederhergestellt und gesehen (Monatsfrist)
+		// Deleted 2026-11-01, only restored and seen on 2026-12-30 (one-month retention period)
 		$f = new FileRow(99, 1, 5, 'x/y.txt', $this->ts('2026-01-01'), null, $this->ts('2026-01-01'),
 			firstSeen: $this->ts('2026-12-30 03:00'), lastDeleted: $this->ts('2026-11-01 03:00'));
 		$d = $this->evaluator->evaluate($f, [5, 1], $this->rules, true, $this->tz, $this->now);
@@ -118,7 +118,7 @@ class EvaluatorTest extends TestCase {
 	}
 
 	public function testExplicitRuleAppliesEvenWhenDefaultDoesNot(): void {
-		// Eine Ordnerregel in einem Home-Verzeichnis greift auch bei ausgeschalteter Personal-Option
+		// A folder rule in a home directory applies even with the personal option turned off
 		$f = $this->file(20, null, null, $this->ts('2026-09-01'));
 		$d = $this->evaluator->evaluate($f, [20, 1], $this->rules, false, $this->tz, $this->now);
 		$this->assertNull($d->skipReason);

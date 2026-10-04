@@ -7,15 +7,15 @@ namespace OCA\FolderRetention\Tests\Unit\AppInfo;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Nextcloud führt App-Migrationen (und InstallDefaults) nur aus, wenn sich die Version in
- * appinfo/info.xml gegenüber der installierten ändert. Eine neue Migration ohne Versionssprung
- * liefe auf Instanzen mit dem älteren Stand nie – z. B. fehlte oc_folder_retention_block nach
- * fb4395c (0.8.0) → Arbeitsbaum, und jede Sperrprüfung scheiterte an der fehlenden Tabelle.
+ * Nextcloud only runs app migrations (and InstallDefaults) when the version in
+ * appinfo/info.xml differs from the installed one. A new migration without a version bump
+ * would never run on instances with the older state – e.g. oc_folder_retention_block was missing after
+ * fb4395c (0.8.0) → working tree, and every block check failed on the missing table.
  */
 class VersionTest extends TestCase {
 	/**
-	 * Ausgelieferte bzw. installierte Stände: Version → Migrationen, die sie mitbrachte.
-	 * Bei jedem neuen Stand mit neuer Migration hier ergänzen.
+	 * Shipped or installed states: version → migrations it brought along.
+	 * Add every new state with a new migration here.
 	 *
 	 * @var array<string, list<string>>
 	 */
@@ -53,7 +53,7 @@ class VersionTest extends TestCase {
 	}
 
 	public function testMigration1003IsNotPartOf080(): void {
-		// Vorbedingung des Tests oben: Die Sperrtabelle kam erst nach fb4395c (0.8.0) hinzu
+		// Precondition of the test above: the block table was only added after fb4395c (0.8.0)
 		$this->assertContains('Version1003Date20261004120000', self::migrations());
 		$this->assertTrue(version_compare(self::appVersion(), '0.8.0', '>'));
 	}

@@ -9,24 +9,24 @@ use OCP\IL10N;
 final class RunStats {
 	public int $evaluated = 0;
 	public int $due = 0;
-	/** echt gelöscht */
+	/** really deleted */
 	public int $deleted = 0;
-	/** im Simulationsmodus als „würde löschen“ erkannt */
+	/** detected as "would delete" in simulation mode */
 	public int $simulated = 0;
 	public int $skipped = 0;
 	public int $errors = 0;
-	/** Aufbewahrungs-Tags neu zugewiesen / entfernt */
+	/** retention tags newly assigned / removed */
 	public int $tagsAdded = 0;
 	public int $tagsRemoved = 0;
-	/** false = Zeitbudget erschöpft, Lauf wird fortgesetzt */
+	/** false = time budget exhausted, run will be resumed */
 	public bool $completed = false;
-	/** true = Lauf fand nicht statt (letzter Zyklus zu frisch) */
+	/** true = run did not take place (last cycle too recent) */
 	public bool $notDue = false;
-	/** gesetzt = Lauf fand nicht statt, weil schon einer läuft (Beschreibung des Halters) */
+	/** set = run did not take place because one is already running (description of the holder) */
 	public ?string $lockedBy = null;
-	/** Bereiche, in denen wegen einer früheren endgültigen Löschung nichts gelöscht wurde */
+	/** areas in which nothing was deleted because of an earlier permanent deletion */
 	public int $blocked = 0;
-	/** true = Lauf fand nicht statt: Hintergrundjobs laufen per AJAX/Webcron, nicht per System-Cron */
+	/** true = run did not take place: background jobs run via AJAX/Webcron, not via system cron */
 	public bool $notCli = false;
 
 	/** e.g. "evaluated 6, due 2, deleted 2, …" (German: „bewertet 6, fällig 2, gelöscht 2, …“) */

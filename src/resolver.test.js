@@ -1,4 +1,4 @@
-// node --test src/  – dieselben Fälle wie tests/Unit/Service/RuleResolverTest.php
+// node --test src/  – the same cases as tests/Unit/Service/RuleResolverTest.php
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resolve } from './resolver.js'
@@ -23,22 +23,22 @@ const rules = new Map([
 ])
 
 const fileCases = [
-	['Datei direkt in Academy', 10, 100, 0],
+	['File directly in Academy', 10, 100, 0],
 	['Academy/Projekte', 11, 100, 1],
 	['Academy/Projekte/2026', 12, 100, 2],
 	['Academy/Archiv', 13, 101, 0],
-	['Archiv/Alt erbt Ausnahme', 14, 101, 1],
-	['Ausnahme in der Ausnahme', 15, 102, 0],
-	['unter Ausnahme in der Ausnahme', 16, 102, 1],
-	['QM-IT direkt (here gilt)', 20, 103, 0],
-	['QM-IT/Entwürfe → Standard', 21, null, null],
-	['QM-IT/Entwürfe/Tief → Standard', 22, null, null],
-	['Presse direkt (here)', 31, 105, 0],
+	['Archiv/Alt inherits exception', 14, 101, 1],
+	['Exception within the exception', 15, 102, 0],
+	['below exception within the exception', 16, 102, 1],
+	['QM-IT directly (here applies)', 20, 103, 0],
+	['QM-IT/Entwürfe → default', 21, null, null],
+	['QM-IT/Entwürfe/Tief → default', 22, null, null],
+	['Presse directly (here)', 31, 105, 0],
 	['Presse/Fotos → Kommunikation', 32, 104, 2],
-	['Roh direkt (here)', 33, 106, 0],
-	['Roh/Neu überspringt zwei here', 34, 104, 4],
-	['Sonstiges → Standard', 40, null, null],
-	['Wurzel → Standard', 1, null, null],
+	['Roh directly (here)', 33, 106, 0],
+	['Roh/Neu skips two here', 34, 104, 4],
+	['Sonstiges → default', 40, null, null],
+	['Root → default', 1, null, null],
 ]
 
 for (const [name, parent, ruleId, depth] of fileCases) {
@@ -52,12 +52,12 @@ for (const [name, parent, ruleId, depth] of fileCases) {
 }
 
 const childCases = [
-	['Academy vererbt sich selbst', 10, 100],
-	['QM-IT (here) → Standard', 20, null],
+	['Academy passes itself on', 10, 100],
+	['QM-IT (here) → default', 20, null],
 	['Presse (here) → Kommunikation', 31, 104],
 	['Roh (here) → Kommunikation', 33, 104],
-	['ohne Regel → wie Datei darin', 11, 100],
-	['Sonstiges → Standard', 40, null],
+	['without rule → like a file inside it', 11, 100],
+	['Sonstiges → default', 40, null],
 ]
 
 for (const [name, folder, ruleId] of childCases) {
@@ -66,12 +66,12 @@ for (const [name, folder, ruleId] of childCases) {
 	})
 }
 
-test('forChildren stimmt mit echtem Kind ohne Regel überein', () => {
+test('forChildren matches a real child without a rule', () => {
 	for (const [folder, child] of [[20, 21], [31, 32], [33, 34], [10, 11], [13, 14]]) {
 		assert.equal(resolve(CHAINS[folder], rules, def, true).rule, resolve(CHAINS[child], rules, def).rule)
 	}
 })
 
-test('leere Kette → Standard', () => {
+test('empty chain → default', () => {
 	assert.equal(resolve([], rules, def).isDefault, true)
 })

@@ -51,7 +51,7 @@ async function set(field, value) {
 	try {
 		await updateSettings({ [field]: value })
 	} catch (e) {
-		// Abbruch der Passwortbestätigung ist kein Fehler
+		// Cancelling the password confirmation is not an error
 		if (e?.response) {
 			showError(e.response.data?.message ?? t('folder_retention', 'Setting could not be saved'))
 		}

@@ -10,7 +10,7 @@ export const PERSONAL_KEY = 'personal'
 
 const url = (path) => generateUrl('/apps/folder_retention/api' + path)
 
-/** Nur die Felder, die eine Regel fachlich ausmachen (für Vergleich + PUT) */
+/** Only the fields that make up a rule semantically (for comparison + PUT) */
 export function ruleFields(rule) {
 	if (!rule) {
 		return null
@@ -30,36 +30,36 @@ function sameRule(a, b) {
 }
 
 /**
- * Zustand der Admin-Oberfläche. Schlüssel: Ordner-ID (Zahl) oder DEFAULT_KEY.
+ * State of the admin UI. Key: folder ID (number) or DEFAULT_KEY.
  */
 export const state = reactive({
 	loading: true,
 	error: null,
 	settings: { simulation: true, tags: false },
-	/** @type {Record<number, object>} id → Knoten {id, parentId, name, path, kind, isRoot, childCount} */
+	/** @type {Record<number, object>} id → node {id, parentId, name, path, kind, isRoot, childCount} */
 	nodes: {},
-	/** @type {Record<string, number[]>} key → Kinder-IDs (nur wenn geladen) */
+	/** @type {Record<string, number[]>} key → child IDs (only when loaded) */
 	children: {},
 	/** @type {Record<string, boolean>} */
 	expanded: { [DEFAULT_KEY]: true },
 	/** @type {Record<string, boolean>} */
 	loadingChildren: {},
-	/** @type {Record<string, object>} key → gespeicherte Regel */
+	/** @type {Record<string, object>} key → saved rule */
 	saved: {},
-	/** @type {Record<string, object|null>} key → Entwurf (null = Regel entfernen / Erben) */
+	/** @type {Record<string, object|null>} key → draft (null = remove rule / inherit) */
 	drafts: {},
-	/** @type {Record<number, boolean>} Teilbaum vollständig geladen */
+	/** @type {Record<number, boolean>} subtree fully loaded */
 	subtreeLoaded: {},
 	selected: DEFAULT_KEY,
 	saving: false,
 })
 
-/** Schlüssel der beiden Standardregeln (keine Ordner) */
+/** Keys of the two default rules (not folders) */
 export function isDefaultKey(key) {
 	return key === DEFAULT_KEY || key === PERSONAL_KEY
 }
 
-/** Regeln inkl. ungespeicherter Entwürfe – Grundlage aller Anzeigen */
+/** Rules including unsaved drafts – basis of all displays */
 const view = computed(() => {
 	const byFolder = new Map()
 	let def = state.saved[DEFAULT_KEY]
@@ -101,7 +101,7 @@ export function discard(key) {
 	delete state.drafts[key]
 }
 
-/** [ordner, eltern, …, bereichswurzel] */
+/** [folder, parent, …, area root] */
 export function chainOf(id) {
 	const chain = []
 	let cur = id
@@ -117,7 +117,7 @@ export function chainOf(id) {
 }
 
 /**
- * Effektive Regel für Dateien direkt in einem Ordner (bzw. für die Standardregel).
+ * Effective rule for files directly in a folder (or for the default rule).
  *
  * @return {{rule, isOwn, isDefault, sourceId, inactive}}
  */
@@ -130,7 +130,7 @@ export function effective(key, forChildren = false) {
 		return { rule: personal ?? def, isOwn: true, isDefault: true, isPersonal: true, sourceId: null }
 	}
 	const chain = chainOf(Number(key))
-	// Art an der Bereichswurzel ablesen – sie ändert sich, wenn ein Konto als Arbeitsbereich markiert wird
+	// Read the kind from the area root – it changes when an account is marked as a workspace account
 	const root = state.nodes[chain[chain.length - 1]]
 	const isPersonal = root?.kind === 'home' && !!personal
 	const res = resolve(chain, byFolder, isPersonal ? personal : def, forChildren)
@@ -146,15 +146,15 @@ export function pathOf(id) {
 }
 
 /**
- * Liegt ein Anzeigepfad in einem persönlichen Ordner? Abgleich mit den Namen der geladenen
- * Bereichswurzeln (kind = home) statt mit dem Präfix „Persönlich · “ – das ist übersetzt.
+ * Is a display path inside a personal folder? Matches against the names of the loaded
+ * area roots (kind = home) instead of the prefix "Persönlich · " – that one is translated.
  */
 export function isPersonalPath(path) {
 	return Object.values(state.nodes).some(n => n.isRoot && n.kind === 'home'
 		&& (path === n.path || path.startsWith(n.path + '/')))
 }
 
-// --- Laden -----------------------------------------------------------------
+// --- Loading ---------------------------------------------------------------
 
 function addNodes(nodes) {
 	for (const n of nodes) {
@@ -186,7 +186,7 @@ export async function loadAll() {
 			state.saved[rule.isPersonalDefault ? PERSONAL_KEY : rule.isDefault ? DEFAULT_KEY : rule.folderId] = rule
 		}
 		addNodes(tree.data.nodes)
-		// Team-Ordner und Arbeitsbereich-Konten direkt unter der Standardregel, persönliche gesammelt
+		// Team folders and workspace accounts directly under the default rule, personal folders grouped
 		state.children[DEFAULT_KEY] = tree.data.nodes.filter(n => n.kind !== 'home').map(n => n.id)
 		state.children[PERSONAL_KEY] = tree.data.nodes.filter(n => n.kind === 'home').map(n => n.id)
 	} catch (e) {
@@ -210,7 +210,7 @@ export async function loadChildren(id) {
 	}
 }
 
-/** Lädt den kompletten Teilbaum unterhalb von id in einem Rutsch. */
+/** Loads the complete subtree below id in one go. */
 export async function loadSubtree(id) {
 	if (state.subtreeLoaded[id]) {
 		return true
@@ -232,7 +232,7 @@ export async function loadSubtree(id) {
 	return true
 }
 
-/** Alle Ordner unterhalb von id (nur wenn geladen) */
+/** All folders below id (only when loaded) */
 export function descendantIds(id) {
 	const out = []
 	const stack = [...(state.children[id] ?? [])]
@@ -255,7 +255,7 @@ export async function toggle(key) {
 	}
 }
 
-/** Bis zu so vielen persönlichen Ordnern klappt „Alle aufklappen“ auch deren Inhalt auf */
+/** Up to this many personal folders, "Expand all" also expands their contents */
 const EXPAND_PERSONAL_MAX = 50
 
 export async function expandAll() {
@@ -263,12 +263,12 @@ export async function expandAll() {
 	const personal = state.children[PERSONAL_KEY] ?? []
 	if (personal.length > 0) {
 		state.expanded[PERSONAL_KEY] = true
-		// bei sehr vielen Konten nur die Liste zeigen, nicht jeden Ordnerbaum laden
+		// with very many accounts only show the list, do not load every folder tree
 		if (personal.length <= EXPAND_PERSONAL_MAX) {
 			roots.push(...personal)
 		}
 	}
-	// zu großer Teilbaum (truncated): wenigstens die erste Ebene; ein fehlender Ordner hält die anderen nicht auf
+	// subtree too large (truncated): at least the first level; one missing folder does not hold up the others
 	await Promise.allSettled(roots.map(async id => (await loadSubtree(id)) || loadChildren(id)))
 	for (const id of roots) {
 		for (const key of [id, ...descendantIds(id)]) {
@@ -283,11 +283,11 @@ export function collapseAll() {
 	state.expanded = { [DEFAULT_KEY]: true }
 }
 
-// --- Speichern ---------------------------------------------------------------
+// --- Saving ----------------------------------------------------------------
 
 /**
- * Passwortbestätigung (Server verlangt sie für Regeln und Einstellungen).
- * Schließt der Benutzer den Dialog, trägt der Fehler cancelled = true.
+ * Password confirmation (the server requires it for rules and settings).
+ * If the user closes the dialog, the error carries cancelled = true.
  */
 async function confirm() {
 	try {
@@ -304,18 +304,18 @@ export async function save(key) {
 	if (!isDirty(key)) {
 		return
 	}
-	// Regeln ändern kann Löschungen auslösen – wie der Simulationsschalter nur mit Passwort
+	// Changing rules can trigger deletions – like the simulation toggle, password only
 	await confirm()
 	state.saving = true
 	try {
 		const draft = state.drafts[key]
-		// DEFAULT_KEY/PERSONAL_KEY entsprechen den API-Pfaden „default“/„personal“
+		// DEFAULT_KEY/PERSONAL_KEY correspond to the API paths "default"/"personal"
 		const id = key
 		if (draft === null) {
 			await axios.delete(url(`/rules/${id}`))
 			delete state.saved[key]
 		} else {
-			// folderId steckt in der URL – im Body würde es den Routen-Parameter überschreiben
+			// folderId is in the URL – in the body it would override the route parameter
 			const { folderId, ...body } = ruleFields(draft)
 			const { data } = await axios.put(url(`/rules/${id}`), body)
 			state.saved[key] = { ...data, path: isDefaultKey(key) ? null : pathOf(Number(key)) }
@@ -332,12 +332,12 @@ export async function updateSettings(patch) {
 	state.settings = data
 }
 
-/** Konto als Arbeitsbereich markieren bzw. zurück zu persönlich; lädt danach den Baum neu */
+/** Mark an account as a workspace account or back to personal; reloads the tree afterwards */
 export async function setWorkspace(uid, workspace) {
 	await confirm()
 	const { data } = await axios.put(url(`/accounts/${encodeURIComponent(uid)}/workspace`), { workspace })
 	state.settings = data
-	// Art und Name der Wurzel ändern sich; aufgeklappte Unterbäume bleiben gültig
+	// Kind and name of the root change; expanded subtrees stay valid
 	const { data: tree } = await axios.get(url('/tree'))
 	addNodes(tree.nodes)
 	state.children[DEFAULT_KEY] = tree.nodes.filter(n => n.kind !== 'home').map(n => n.id)
@@ -354,19 +354,19 @@ export async function fetchLog(params) {
 	return data
 }
 
-/** Tage mit Einträgen (neueste zuerst) samt Zahlen je Statusgruppe */
+/** Days with entries (newest first) including counts per status group */
 export async function fetchLogDays(params) {
 	const { data } = await axios.get(url('/log/days'), { params })
 	return data
 }
 
-/** Ordner mit Einträgen samt Zahlen, meist für einen Tag (from/to) */
+/** Folders with entries including counts, usually for one day (from/to) */
 export async function fetchLogFolders(params) {
 	const { data } = await axios.get(url('/log/folders'), { params })
 	return data.folders
 }
 
-/** CSV-Export mit denselben Filtern; per axios, damit das CSRF-Token mitgeht */
+/** CSV export with the same filters; via axios so the CSRF token is sent along */
 export async function downloadLog(params) {
 	const res = await axios.get(url('/log/export'), { params, responseType: 'blob' })
 	const name = /filename="?([^";]+)"?/.exec(res.headers['content-disposition'] ?? '')?.[1] ?? t('folder_retention', 'log.csv')

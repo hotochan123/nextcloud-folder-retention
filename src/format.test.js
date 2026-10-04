@@ -1,6 +1,6 @@
-// Texte der Oberfläche: basis=created heißt ab 0.8.0 „seit Ablage in Nextcloud“.
-// Quelltexte sind Englisch; die deutschen Erwartungen laufen über l10n/.js-de.json –
-// so prüft der Test zugleich, dass die Übersetzung den bisherigen Wortlaut trifft.
+// UI texts: as of 0.8.0, basis=created means "since upload to Nextcloud".
+// Source strings are English; the German expectations go through l10n/.js-de.json –
+// so the test also checks that the translation matches the previous wording.
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -9,21 +9,21 @@ import { baseName, categoryOf, countChips, effectText, formatDay, periodLabel, s
 
 const de = JSON.parse(readFileSync(new URL('../l10n/.js-de.json', import.meta.url), 'utf8')).translations
 
-describe('Deutsch (l10n/.js-de.json)', () => {
+describe('German (l10n/.js-de.json)', () => {
 	before(() => register('folder_retention', de))
 	after(() => unregister('folder_retention'))
 
-	test('Frist ab Ablage in Nextcloud', () => {
+	test('Retention period from upload to Nextcloud', () => {
 		const eff = { rule: { periodUnit: 'month', periodValue: 1, basis: 'created' } }
 		assert.equal(effectText(eff), 'Dateien werden 1 Monat nach Ablage in Nextcloud gelöscht.')
 	})
 
-	test('Frist ab letzter Änderung', () => {
+	test('Retention period from last modification', () => {
 		const eff = { rule: { periodUnit: 'week', periodValue: 2, basis: 'modified' } }
 		assert.equal(effectText(eff), 'Dateien werden 2 Wochen nach der letzten Änderung gelöscht.')
 	})
 
-	test('Dativ im Klartext, Nominativ auf der Plakette', () => {
+	test('Dative in the plain-language text, nominative on the badge', () => {
 		const rule = { periodUnit: 'month', periodValue: 3, basis: 'created', notify: true }
 		assert.equal(effectText({ rule }), 'Dateien werden 3 Monaten nach Ablage in Nextcloud gelöscht. Der Besitzer wird einen Tag vorher benachrichtigt.')
 		assert.equal(effectText({ rule: { ...rule, periodUnit: 'day', periodValue: 10, notify: false } }), 'Dateien werden 10 Tagen nach Ablage in Nextcloud gelöscht.')
@@ -32,11 +32,11 @@ describe('Deutsch (l10n/.js-de.json)', () => {
 		assert.equal(periodLabel({ periodUnit: 'never' }), 'Nie löschen')
 	})
 
-	test('Nie löschen', () => {
+	test('Never delete', () => {
 		assert.equal(effectText({ rule: { periodUnit: 'never', periodValue: null } }), 'Dateien werden nie automatisch gelöscht.')
 	})
 
-	test('Quellen des Bezugsdatums', () => {
+	test('Sources of the reference date', () => {
 		assert.equal(sourceLabel('upload'), 'Ablage in Nextcloud')
 		assert.equal(sourceLabel('seen'), 'zuerst gesehen')
 		assert.equal(sourceLabel('restored'), 'wiederhergestellt')
@@ -44,15 +44,15 @@ describe('Deutsch (l10n/.js-de.json)', () => {
 		assert.equal(sourceLabel('unbekannt'), 'unbekannt')
 	})
 
-	test('Quellen-Spalte', () => {
+	test('Source column', () => {
 		const rule = { scope: 'inherit' }
 		assert.equal(sourceText({ isOwn: true, rule }, true), 'Eigene Regel · vererbt')
 		assert.equal(sourceText({ isOwn: false, isDefault: true, isPersonal: true }), 'geerbt von Persönliche Ordner')
-		// Ordnernamen mit Sonderzeichen nicht maskieren – Vue escaped selbst
+		// Do not escape folder names with special characters – Vue escapes itself
 		assert.equal(sourceText({ isOwn: false, isDefault: false, sourceId: 7 }, false, () => 'A & B <x>'), 'geerbt von A & B <x>')
 	})
 
-	test('Protokoll: Zahlen je Statusgruppe, Fehler zuerst', () => {
+	test('Log: counts per status group, errors first', () => {
 		const chips = countChips({ deleted: 0, would_delete: 2, skipped: 1, error: 1 })
 		assert.deepEqual(chips.map(c => c.label), ['1 Fehler', '2 würden gelöscht', '1 übersprungen'])
 		assert.deepEqual(chips.map(c => c.tone), ['error', 'sim', 'skip'])
@@ -60,8 +60,8 @@ describe('Deutsch (l10n/.js-de.json)', () => {
 	})
 })
 
-describe('Englisch (Quelltexte, keine Übersetzung geladen)', () => {
-	test('Klartext und Plakette', () => {
+describe('English (source strings, no translation loaded)', () => {
+	test('Plain-language text and badge', () => {
 		assert.equal(effectText({ rule: { periodUnit: 'month', periodValue: 1, basis: 'created' } }), 'Files are deleted 1 month after upload to Nextcloud.')
 		assert.equal(effectText({ rule: { periodUnit: 'week', periodValue: 2, basis: 'modified', notify: true } }),
 			'Files are deleted 2 weeks after their last modification. The owner is notified one day in advance.')
@@ -70,13 +70,13 @@ describe('Englisch (Quelltexte, keine Übersetzung geladen)', () => {
 	})
 })
 
-test('Sperre aufheben schickt nur die angezeigten Bereiche mit Zeitpunkt', () => {
+test('Lifting a block sends only the displayed areas with timestamp', () => {
 	const shown = [{ key: '5:files', label: 'Persönlich · bob', reason: 'x', at: 100 }]
 	assert.deepEqual(unblockPayload(shown), { unblock: [{ key: '5:files', at: 100 }] })
 	assert.deepEqual(unblockPayload([]), { unblock: [] })
 })
 
-test('Protokoll: Dateiname und Statusgruppe wie LogSummary::category()', () => {
+test('Log: file name and status group like LogSummary::category()', () => {
 	assert.equal(categoryOf('would_delete'), 'would_delete')
 	assert.equal(categoryOf('skipped_locked'), 'skipped')
 	assert.equal(categoryOf('deleted_final'), 'error')
@@ -85,7 +85,7 @@ test('Protokoll: Dateiname und Statusgruppe wie LogSummary::category()', () => {
 	assert.equal(baseName('a.txt'), 'a.txt')
 })
 
-test('Protokoll: Bezugsquelle nur bei Abweichung vom Normalfall', () => {
+test('Log: reference source only when deviating from the normal case', () => {
 	assert.equal(unusualSource('upload'), false)
 	assert.equal(unusualSource('mtime'), false)
 	for (const src of ['seen', 'restored', 'created']) {
@@ -93,8 +93,8 @@ test('Protokoll: Bezugsquelle nur bei Abweichung vom Normalfall', () => {
 	}
 })
 
-test('Protokoll: Tag ohne Zeitzonen-Verschiebung', () => {
-	// „2026-10-04“ ist ein Tag der Instanz-Zeitzone; new Date('2026-10-04') wäre UTC-Mitternacht
+test('Log: day without time zone shift', () => {
+	// "2026-10-04" is a day in the instance time zone; new Date('2026-10-04') would be UTC midnight
 	assert.match(formatDay('2026-10-04'), /4/)
 	assert.doesNotMatch(formatDay('2026-10-04'), /3/)
 })

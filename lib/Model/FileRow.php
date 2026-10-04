@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\Model;
 
 /**
- * Eine Datei (oder beim Tag-Abgleich ein Ordner) aus oc_filecache (+ oc_filecache_extended).
+ * A file (or, during tag sync, a folder) from oc_filecache (+ oc_filecache_extended).
  */
 final class FileRow {
 	public function __construct(
@@ -17,32 +17,32 @@ final class FileRow {
 		public readonly ?int $creationTime,
 		public readonly ?int $uploadTime,
 		public readonly int $size = 0,
-		/** nur bei Tag-Abgleich: Ordner werden mitgelesen, aber nie bewertet oder gelöscht */
+		/** tag sync only: folders are read along but never evaluated or deleted */
 		public readonly bool $isFolder = false,
-		/** von der App vermerktes „zuerst gesehen“ (folder_retention_seen), null = kein Eintrag */
+		/** "first seen" as recorded by the app (folder_retention_seen), null = no entry */
 		public readonly ?int $firstSeen = null,
-		/** letzte echte Löschung dieser Datei-ID laut Protokoll, null = nie */
+		/** last real deletion of this file ID according to the log, null = never */
 		public readonly ?int $lastDeleted = null,
 		/**
-		 * Settings::seenMaxFileId() – Datei-IDs darüber sind nach dem Update entstanden, für sie
-		 * zählt „zuerst gesehen“ auch neben upload_time. null = nicht übergeben (nur ohne upload_time)
+		 * Settings::seenMaxFileId() – file IDs above it were created after the update; for them
+		 * "first seen" also counts alongside upload_time. null = not passed (only without upload_time)
 		 */
 		public readonly ?int $seenMaxFileId = null,
 	) {
 	}
 
-	/** Kopie mit „zuerst gesehen“ und letzter Löschung (beides kommt aus eigenen Tabellen) */
+	/** Copy with "first seen" and last deletion (both come from the app's own tables) */
 	public function with(?int $firstSeen, ?int $lastDeleted, ?int $seenMaxFileId = null): self {
 		return new self($this->fileId, $this->storageId, $this->parentId, $this->path, $this->mtime,
 			$this->creationTime, $this->uploadTime, $this->size, $this->isFolder, $firstSeen, $lastDeleted, $seenMaxFileId);
 	}
 
-	/** Nach dem Update auf 0.8 entstanden (neue Datei-ID, z. B. Kopie)? */
+	/** Created after the update to 0.8 (new file ID, e.g. a copy)? */
 	public function isNewSinceMark(): bool {
 		return $this->seenMaxFileId !== null && $this->fileId > $this->seenMaxFileId;
 	}
 
-	/** Kennt Nextcloud den Zeitpunkt der Ablage? Sonst braucht basis=created „zuerst gesehen“. */
+	/** Does Nextcloud know when the file was stored? Otherwise basis=created needs "first seen". */
 	public function hasUploadTime(): bool {
 		return $this->uploadTime !== null && $this->uploadTime > 0;
 	}

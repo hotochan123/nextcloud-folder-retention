@@ -4,7 +4,7 @@
 
 <script setup>
 defineProps({
-	/** delete | sim | skip | error, siehe CATEGORY_TONE */
+	/** delete | sim | skip | error, see CATEGORY_TONE */
 	tone: { type: String, required: true },
 	label: { type: String, required: true },
 })
@@ -34,7 +34,7 @@ defineProps({
 	}
 
 	&--error {
-		// --color-error ist in Nextcloud 34 ein heller Hintergrundton, weiße Schrift darauf unlesbar
+		// in Nextcloud 34, --color-error is a light background tone; white text on it is unreadable
 		background: var(--color-element-error, #c00);
 		color: #fff;
 	}

@@ -16,9 +16,9 @@ use PHPUnit\Framework\TestCase;
 require_once __DIR__ . '/../../stubs/Doctrine.php';
 
 /**
- * Settings mit der Sperrtabelle (folder_retention_block) im Speicher: Einfügen ohne
- * Überschreiben und DELETE mit Bedingung wie in der Datenbank. Mehrere Instanzen teilen sich
- * die Tabelle – wie mehrere Prozesse.
+ * Settings with the block table (folder_retention_block) in memory: insert without
+ * overwriting and conditional DELETE, as in the database. Several instances share
+ * the table – like several processes.
  */
 final class InMemoryBlockSettings extends Settings {
 	public function __construct(IAppConfig $appConfig, IConfig $config, IDBConnection $db, private \ArrayObject $table) {
@@ -47,17 +47,17 @@ final class InMemoryBlockSettings extends Settings {
 }
 
 /**
- * Sicherheitssperre unabhängig von der Art des Bereichs, frisch gelesen statt aus dem
- * Prozess-Cache, „zuerst gesehen“-Startpunkt, Laufsperre (SQL-Aufbau). Die Laufsperre gegen
- * eine echte Datenbank prüft der Harness (S10), die Sperrliste zusätzlich S19/S20.
+ * Safety block independent of the kind of root, read fresh instead of from the
+ * process cache, "first seen" starting point, run lease (SQL construction). The harness checks
+ * the run lease against a real database (S10), the block list additionally in S19/S20.
  */
 class SettingsTest extends TestCase {
-	/** @var array<string, string|int> App-Config in der Datenbank */
+	/** @var array<string, string|int> app config in the database */
 	private array $values = [];
 	private \ArrayObject $blockTable;
-	/** @var list<string> an IQueryBuilder::createFunction übergebene Ausdrücke */
+	/** @var list<string> expressions passed to IQueryBuilder::createFunction */
 	private array $functions = [];
-	/** Ergebnis von executeStatement im Laufsperren-Test */
+	/** Result of executeStatement in the run lease test */
 	private int $affected = 1;
 
 	protected function setUp(): void {
@@ -65,8 +65,8 @@ class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Eine Instanz = ein Prozess: Die App-Config liest wie IAppConfig einmal und dann aus dem
-	 * eigenen Cache, bis clearCache(); Schreiben geht in die Datenbank und den eigenen Cache.
+	 * One instance = one process: like IAppConfig, the app config is read once and then from its
+	 * own cache until clearCache(); writes go to the database and the own cache.
 	 */
 	private function settings(): Settings {
 		$cache = null;
@@ -96,7 +96,7 @@ class SettingsTest extends TestCase {
 		return new InMemoryBlockSettings($appConfig, $this->createMock(IConfig::class), $this->db(), $this->blockTable);
 	}
 
-	/** Datenbank für die Laufsperre: Einfügen scheitert (Zeile da), UPDATE trifft $affected Zeilen */
+	/** Database for the run lease: insert fails (row exists), UPDATE hits $affected rows */
 	private function db(): IDBConnection {
 		$db = $this->createMock(IDBConnection::class);
 		$db->method('insertIgnoreConflict')->willReturn(0);
@@ -108,7 +108,7 @@ class SettingsTest extends TestCase {
 			}
 			$qb->method('expr')->willReturn($expr);
 			$qb->method('createNamedParameter')->willReturn(':p');
-			// Oracle: Spalten sind klein geschrieben angelegt und müssen quotiert werden
+			// Oracle: columns are created in lower case and must be quoted
 			$qb->method('getColumnName')->willReturnCallback(fn (string $c) => '"' . $c . '"');
 			$qb->method('createFunction')->willReturnCallback(function (string $call) {
 				$this->functions[] = $call;
@@ -157,7 +157,7 @@ class SettingsTest extends TestCase {
 		$this->values['job_cursor'] = json_encode(['root' => 'home:1', 'after' => 5]);
 		$this->assertSame(['root' => 'home:1', 'after' => 5], $settings->getCursor());
 		$this->values['job_cursor'] = json_encode(['root' => 'home:1', 'after' => 7, 'seen' => true]);
-		$settings = $this->settings(); // anderer Prozess (der erste hält seinen Stand im Cache)
+		$settings = $this->settings(); // another process (the first one keeps its state in the cache)
 		$this->assertSame(['root' => 'home:1', 'after' => 7], $settings->getCursor());
 
 		$settings->setCursor('home:1', 9);
@@ -167,7 +167,7 @@ class SettingsTest extends TestCase {
 	public function testUnblockOnlyRemovesNamedBlocks(): void {
 		$settings = $this->settings();
 		$settings->blockRoot('a', 'Bereich A', 'x', 100);
-		// Admin sieht nur A; während die Seite offen ist, sperrt der Job B
+		// Admin only sees A; while the page is open, the job blocks B
 		$settings->blockRoot('b', 'Bereich B', 'y', 200);
 
 		$this->assertSame(['a'], $settings->unblockRoots(['a' => 100]));
@@ -179,7 +179,7 @@ class SettingsTest extends TestCase {
 
 	public function testUnblockKeepsBlockRenewedSinceDisplayed(): void {
 		$settings = $this->settings();
-		$settings->blockRoot('a', 'Bereich A', 'neu', 300); // angezeigt war die Sperre von 100
+		$settings->blockRoot('a', 'Bereich A', 'neu', 300); // the block shown was the one from 100
 
 		$this->assertSame([], $settings->unblockRoots(['a' => 100]));
 		$this->assertTrue($settings->isRootBlocked('a'));
@@ -212,14 +212,14 @@ class SettingsTest extends TestCase {
 		$web->blockedRoots();
 
 		$occ->blockRoot('c', 'C', 'x', 100);
-		$cron->blockRoot('d', 'D', 'y', 110); // Liste des Cron war veraltet
+		$cron->blockRoot('d', 'D', 'y', 110); // cron's list was stale
 		$this->assertSame(['c', 'd'], array_keys($occ->blockedRoots()), 'Sperre C bleibt');
 
-		// Admin hebt D auf (Seite zeigte D) – C kam im Web-Prozess nie an, bleibt trotzdem
+		// Admin lifts D (page showed D) – C never reached the web process, stays anyway
 		$this->assertSame(['d'], $web->unblockRoots(['d' => 110]));
 		$this->assertSame(['c'], array_keys($cron->blockedRoots()));
 
-		// Cron sperrt danach E – setzt das aufgehobene D nicht wieder
+		// Cron then blocks E – does not restore the lifted D
 		$cron->blockRoot('e', 'E', 'z', 120);
 		$this->assertSame(['c', 'e'], array_keys($web->blockedRoots()));
 	}
@@ -239,7 +239,7 @@ class SettingsTest extends TestCase {
 	public function testStaleLegacyCacheDoesNotRestoreLiftedBlock(): void {
 		$this->values['blocked_roots'] = json_encode(['a' => ['label' => 'A', 'reason' => 'x', 'at' => 1]]);
 		$stale = $this->settings();
-		$stale->getCursor(); // Prozess hat die App-Config (samt alter Liste) im Cache
+		$stale->getCursor(); // process has the app config (including the old list) in its cache
 		$admin = $this->settings();
 		$this->assertSame(['a'], $admin->unblockRoots(['a' => 1]), 'übernommen und aufgehoben');
 
@@ -253,7 +253,7 @@ class SettingsTest extends TestCase {
 		$this->assertSame(['"renewals" + 1', '"renewals" + 1'], $this->functions, 'Spaltenname per getColumnName (Oracle: ORA-00904)');
 	}
 
-	// --- Simulationsschalter frisch aus der Datenbank (Notbremse im laufenden Prozess) ---
+	// --- Simulation switch read fresh from the database (emergency brake in a running process) ---
 
 	/** @return array<string, array{0: string|null|\Throwable, 1: bool}> */
 	public static function simulationRows(): array {
@@ -272,7 +272,7 @@ class SettingsTest extends TestCase {
 	#[\PHPUnit\Framework\Attributes\DataProvider('simulationRows')]
 	public function testSimulationIsReadFreshFromDatabase(string|null|\Throwable $row, bool $expected): void {
 		$appConfig = $this->createMock(IAppConfig::class);
-		// Prozess-Cache sagt AUS – zählen darf nur die Datenbank
+		// process cache says OFF – only the database may count
 		$appConfig->method('getValueBool')->willReturn(false);
 		$appConfig->expects($this->never())->method('clearCache');
 		$settings = new class($appConfig, $this->createMock(IConfig::class), $this->createMock(IDBConnection::class), $row) extends Settings {

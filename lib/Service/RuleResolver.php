@@ -9,33 +9,33 @@ use OCA\FolderRetention\Model\Resolution;
 use OCA\FolderRetention\Model\RetentionRule;
 
 /**
- * Reine Auflösungslogik – kein Dateisystem, keine DB.
+ * Pure resolution logic – no file system, no DB.
  *
- * Für eine Datei F mit direktem Elternordner P:
- *  1. Hat P eine Regel, gilt sie – unabhängig vom Geltungsbereich.
- *  2. Sonst aufwärts: der erste Vorfahr mit Regel UND scope=inherit gewinnt;
- *     Regeln mit scope=here werden übersprungen.
- *  3. Sonst gilt die Standardregel.
+ * For a file F with direct parent folder P:
+ *  1. If P has a rule, it applies – regardless of its scope.
+ *  2. Otherwise walk upwards: the first ancestor with a rule AND scope=inherit wins;
+ *     rules with scope=here are skipped.
+ *  3. Otherwise the default rule applies.
  *
- * Dieselbe Funktion liefert die „effektive Regel eines Ordners“ für die UI:
- * Das ist die Regel, die für Dateien direkt in diesem Ordner gilt, also
- * resolve([ordner, eltern, großeltern, …]).
+ * The same function provides the "effective rule of a folder" for the UI:
+ * that is the rule that applies to files directly in this folder, i.e.
+ * resolve([folder, parent, grandparent, …]).
  */
 class RuleResolver {
 
 	/**
-	 * @param list<int> $folderChain Ordner-IDs vom direkten Elternordner der Datei aufwärts
-	 *                               bis zur Wurzel, z. B. [P, P.parent, …]
-	 * @param array<int, RetentionRule> $rulesByFolderId Ordnerregeln, Schlüssel = folderId
+	 * @param list<int> $folderChain folder IDs from the file's direct parent folder upwards
+	 *                               to the root, e.g. [P, P.parent, …]
+	 * @param array<int, RetentionRule> $rulesByFolderId folder rules, key = folderId
 	 */
 	public function resolve(array $folderChain, array $rulesByFolderId, RetentionRule $default): Resolution {
 		return $this->walk($folderChain, $rulesByFolderId, $default, true);
 	}
 
 	/**
-	 * Regel, die ein (hypothetischer) Unterordner OHNE eigene Regel von $folderChain[0]
-	 * erben würde. Für die UI-Zeile „Unterordner erben von …“ bei scope=here.
-	 * Die Tiefe im Ergebnis ist relativ zu $folderChain[0] (0 = dieser Ordner).
+	 * Rule that a (hypothetical) subfolder WITHOUT its own rule would inherit from
+	 * $folderChain[0]. For the UI line "Subfolders continue to inherit from …" with scope=here.
+	 * The depth in the result is relative to $folderChain[0] (0 = this folder).
 	 *
 	 * @param list<int> $folderChain
 	 * @param array<int, RetentionRule> $rulesByFolderId
@@ -64,7 +64,7 @@ class RuleResolver {
 			if (($depth === 0 && $directParentAnyScope) || $rule->inherits()) {
 				return new Resolution($rule, $depth);
 			}
-			// scope=here an einem Vorfahren: überspringen
+			// scope=here on an ancestor: skip
 		}
 
 		return new Resolution($default, null);

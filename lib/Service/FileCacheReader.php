@@ -10,14 +10,14 @@ use OCP\Files\IMimeTypeLoader;
 use OCP\IDBConnection;
 
 /**
- * Lesender Direktzugriff auf oc_filecache. Bewusst ohne Dateisystem-Setup pro Benutzer:
- * Der Job bewertet Storages, nicht Benutzersichten.
+ * Read-only direct access to oc_filecache. Deliberately without per-user filesystem setup:
+ * the job evaluates storages, not user views.
  */
 class FileCacheReader {
 	private const MAX_DEPTH = 256;
 
 	private ?int $folderMime = null;
-	/** @var array<int, int> fileid → parent, nur Ordner */
+	/** @var array<int, int> fileid → parent, folders only */
 	private array $parents = [];
 
 	public function __construct(
@@ -31,10 +31,10 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Nächster Batch Dateien eines Storages unterhalb von $pathPrefix, nach fileid.
+	 * Next batch of files of a storage below $pathPrefix, ordered by fileid.
 	 *
-	 * @param string $pathPrefix interner Pfad ohne abschließenden Slash; '' = ganzer Storage
-	 * @param bool $includeFolders Ordner mitliefern (FileRow::$isFolder) – nur für den Tag-Abgleich
+	 * @param string $pathPrefix internal path without trailing slash; '' = whole storage
+	 * @param bool $includeFolders also return folders (FileRow::$isFolder) – only for tag reconciliation
 	 * @return list<FileRow>
 	 */
 	public function fetchFiles(int $storageId, string $pathPrefix, int $afterFileId, int $limit, bool $includeFolders = false): array {
@@ -60,7 +60,7 @@ class FileCacheReader {
 		return $rows;
 	}
 
-	/** Höchste vergebene Datei-ID (0 bei leerem Filecache) – Grenze Bestand/neu, siehe Settings */
+	/** Highest assigned file ID (0 for an empty file cache) – boundary between existing and new files, see Settings */
 	public function maxFileId(): int {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select($qb->func()->max('fileid'))->from('filecache');
@@ -71,7 +71,7 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Eine Datei frisch aus der DB (für die Neuprüfung unmittelbar vor dem Löschen).
+	 * A single file fetched fresh from the DB (for the re-check immediately before deletion).
 	 */
 	public function getFileRow(int $fileId): ?FileRow {
 		$qb = $this->db->getQueryBuilder();
@@ -107,9 +107,9 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Ordnerkette ab $folderId aufwärts bis einschließlich $stopAt.
+	 * Folder chain from $folderId upwards up to and including $stopAt.
 	 *
-	 * @return list<int>|null null, wenn $stopAt nicht erreicht wird (Ordner liegt außerhalb)
+	 * @return list<int>|null null if $stopAt is not reached (folder lies outside)
 	 */
 	public function chain(int $folderId, int $stopAt): ?array {
 		$chain = [];
@@ -132,8 +132,8 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Lädt Elternbeziehungen für die angegebenen Ordner und alle Vorfahren – ebenenweise gebündelt,
-	 * damit ein Batch Dateien nur so viele Queries braucht, wie der Baum tief ist.
+	 * Loads parent relations for the given folders and all their ancestors – batched per level,
+	 * so that a batch of files needs only as many queries as the tree is deep.
 	 *
 	 * @param list<int> $folderIds
 	 */
@@ -165,14 +165,14 @@ class FileCacheReader {
 			$result->closeCursor();
 		}
 		foreach ($ids as $id) {
-			// nicht (mehr) vorhanden → als Wurzel behandeln
+			// not present (anymore) → treat as root
 			$this->parents[$id] ??= -1;
 		}
 	}
 
 	/**
-	 * Wie chain(), aber ohne Zwischenspeicher: jede Ebene frisch aus der DB. Für die Neuprüfung
-	 * vor dem Löschen – der Zwischenspeicher eines Scans kann Stunden alt sein.
+	 * Like chain(), but without the cache: every level fetched fresh from the DB. For the re-check
+	 * before deletion – a scan's cache can be hours old.
 	 *
 	 * @return list<int>|null
 	 */
@@ -199,9 +199,9 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Steht die Datei-ID im Papierkorb der Team-Ordner (oc_group_folders_trash.file_id)?
+	 * Is the file ID in the team folders' trash bin (oc_group_folders_trash.file_id)?
 	 *
-	 * @return bool|null null = nicht feststellbar (groupfolders fehlt oder ältere Tabelle ohne file_id)
+	 * @return bool|null null = cannot be determined (groupfolders missing or older table without file_id)
 	 */
 	public function isInGroupFolderTrash(int $fileId): ?bool {
 		try {
@@ -219,12 +219,12 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Jüngster Eintrag im Papierkorb der Team-Ordner zu dieser (alten) Datei-ID: Name und
-	 * Löschzeitpunkt – daraus bildet groupfolders den Papierkorb-Namen „<name>.d<zeit>“.
-	 * Teilen sich mehrere Einträge Ordner, Name und Zeitpunkt (ältere groupfolders ohne
-	 * Eindeutigkeit), ist offen, wessen Inhalt dort liegt: dann null.
+	 * Most recent entry in the team folders' trash bin for this (old) file ID: name and
+	 * deletion time – groupfolders builds the trash bin name "<name>.d<time>" from these.
+	 * If several entries share folder, name and time (older groupfolders without a
+	 * uniqueness guarantee), it is unclear whose content lies there: then null.
 	 *
-	 * @return array{name: string, time: int}|null null = kein (eindeutiger) Eintrag oder nicht feststellbar
+	 * @return array{name: string, time: int}|null null = no (unique) entry or cannot be determined
 	 */
 	public function groupFolderTrashEntry(int $fileId): ?array {
 		try {
@@ -254,9 +254,9 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Größe eines Eintrags laut Filecache (Ordner: aufsummiert von Nextcloud).
+	 * Size of an entry according to the file cache (folders: summed up by Nextcloud).
 	 *
-	 * @return int|float|null null = Eintrag fehlt; negative Werte = Größe unbekannt
+	 * @return int|float|null null = entry missing; negative values = size unknown
 	 */
 	public function getSize(int $storageId, string $path): int|float|null {
 		$qb = $this->db->getQueryBuilder();
@@ -270,9 +270,9 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Kennung eines Storages (oc_storages.id), z. B. „home::alice“ oder „object::user:alice“.
+	 * Identifier of a storage (oc_storages.id), e.g. "home::alice" or "object::user:alice".
 	 *
-	 * @return string|null null = Storage unbekannt
+	 * @return string|null null = storage unknown
 	 */
 	public function storageStringId(int $storageId): ?string {
 		$qb = $this->db->getQueryBuilder();
@@ -285,10 +285,10 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Quota eines Team-Ordners (oc_group_folders.quota) über seine Wurzel.
+	 * Quota of a team folder (oc_group_folders.quota), looked up via its root.
 	 *
-	 * @return int|null Rohwert (-3 unbegrenzt, -4 Standard aus groupfolders.quota.default);
-	 *                  null = nicht feststellbar (groupfolders fehlt, ältere Tabelle ohne root_id)
+	 * @return int|null raw value (-3 unlimited, -4 default from groupfolders.quota.default);
+	 *                  null = cannot be determined (groupfolders missing, older table without root_id)
 	 */
 	public function groupFolderQuota(int $rootId): ?int {
 		try {
@@ -304,7 +304,7 @@ class FileCacheReader {
 		}
 	}
 
-	/** Zwischenspeicher leeren (zwischen Läufen/Bereichen; Ordner können verschoben werden) */
+	/** Clear the cache (between runs/scopes; folders can be moved) */
 	public function reset(): void {
 		$this->parents = [];
 	}
@@ -361,8 +361,8 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Gibt es direkt in Ordner $dir einen Eintrag „….d<$time>“ (Papierkorb-Name dieser Sekunde)?
-	 * Nur für lange Namen gedacht – durchsucht alle Einträge des Papierkorbs.
+	 * Is there an entry "….d<$time>" (trash bin name for this second) directly in folder $dir?
+	 * Intended only for long names – searches all entries of the trash bin.
 	 */
 	public function hasTrashEntryAt(int $storageId, string $dir, int $time): bool {
 		$parentId = $this->getIdByPath($storageId, $dir);
@@ -381,12 +381,12 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Summe der Versionen einer Datei im Home-Storage – files_trashbin verschiebt sie beim
-	 * Löschen mit nach files_trashbin/versions. Gleiche Regel wie files_versions Storage::getVersions:
-	 * „files/a/b.txt“ → Einträge „files_versions/a/b.txt.v<Zahl>“ im selben Ordner.
+	 * Total size of a file's versions in the home storage – files_trashbin moves them along to
+	 * files_trashbin/versions on deletion. Same rule as files_versions Storage::getVersions:
+	 * "files/a/b.txt" → entries "files_versions/a/b.txt.v<number>" in the same folder.
 	 *
-	 * @param string $filePath interner Pfad der Datei („files/…“)
-	 * @return int|float|null 0 = keine Versionen; null = Größe einer Version unbekannt
+	 * @param string $filePath internal path of the file ("files/…")
+	 * @return int|float|null 0 = no versions; null = size of a version unknown
 	 */
 	public function versionsSize(int $storageId, string $filePath): int|float|null {
 		if (!str_starts_with($filePath, 'files/')) {
@@ -407,7 +407,7 @@ class FileCacheReader {
 		$sum = 0;
 		$unknown = false;
 		while ($row = $result->fetch()) {
-			// „b.txt.v1.v2“ gehört zu „b.txt.v1“, nicht zu „b.txt“
+			// "b.txt.v1.v2" belongs to "b.txt.v1", not to "b.txt"
 			if (!preg_match('/^' . preg_quote($base, '/') . '\.v\d+$/', (string)$row['name'])) {
 				continue;
 			}
@@ -422,7 +422,7 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Direkte Unterordner, alphabetisch, mit Anzahl eigener Unterordner (für den Aufklapp-Pfeil).
+	 * Direct subfolders, alphabetical, with the number of their own subfolders (for the expand arrow).
 	 *
 	 * @return list<array{fileid: int, name: string, path: string, childFolders: int}>
 	 */
@@ -458,7 +458,7 @@ class FileCacheReader {
 	}
 
 	/**
-	 * Alle Ordner unterhalb eines Pfads (für „wie viele Unterordner übernehmen die Regel“).
+	 * All folders below a path (for "how many subfolders inherit the rule").
 	 *
 	 * @return list<array{fileid: int, parent: int, path: string, name: string}>
 	 */

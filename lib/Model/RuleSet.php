@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\Model;
 
 /**
- * Alle Regeln zu einem Zeitpunkt – ein Lauf arbeitet durchgehend mit demselben Stand.
+ * All rules at one point in time – a run works with the same snapshot throughout.
  */
 final class RuleSet {
 	/**
 	 * @param array<int, RetentionRule> $byFolderId
-	 * @param RetentionRule|null $personal Standardregel für persönliche Ordner; null = dort gilt $default
+	 * @param RetentionRule|null $personal default rule for personal folders; null = $default applies there
 	 */
 	public function __construct(
 		public readonly RetentionRule $default,
@@ -20,8 +20,8 @@ final class RuleSet {
 	}
 
 	/**
-	 * Regelsatz aus Sicht eines Bereichs: In persönlichen Ordnern tritt die persönliche
-	 * Standardregel an die Stelle der allgemeinen.
+	 * Rule set from the perspective of an area: in personal folders the personal
+	 * default rule takes the place of the general one.
 	 */
 	public function forRoot(RetentionRoot $root): self {
 		if ($root->isHome() && $this->personal !== null) {

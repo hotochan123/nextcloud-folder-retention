@@ -13,7 +13,7 @@ import { isNever, periodLabel } from '../format.js'
 import { t } from '../l10n.js'
 
 const props = defineProps({
-	/** Ergebnis von store.effective() */
+	/** Result of store.effective() */
 	eff: { type: Object, required: true },
 })
 
@@ -29,7 +29,7 @@ const label = computed(() => props.eff.inactive ? t('folder_retention', 'No dele
 
 <style scoped lang="scss">
 /*
- * Farben aus colors.css. Gefüllt = eigene Regel, umrandet = geerbt.
+ * Colors from colors.css. Filled = own rule, outlined = inherited.
  */
 .fr-badge {
 	display: inline-block;

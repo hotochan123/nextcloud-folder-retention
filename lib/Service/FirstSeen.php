@@ -8,7 +8,7 @@ use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\IDBConnection;
 
 /**
- * Schreibt „zuerst gesehen“ (folder_retention_seen). Gelesen wird per Join in FileCacheReader.
+ * Writes "first seen" (folder_retention_seen). Reading happens via a join in FileCacheReader.
  */
 class FirstSeen {
 	public function __construct(
@@ -17,17 +17,17 @@ class FirstSeen {
 	}
 
 	/**
-	 * Grenze Bestand/neu aus dem Zeitpunkt des frühen 0.8.0-Stands (seen_since): die kleinere von
-	 * zwei Grenzen, beide vorsichtig –
-	 * - höchste bis dahin gesehene ID: Alles, was danach entstand, hat eine höhere ID (auch eine
-	 *   Kopie, die beim Update noch gar nicht gesehen war);
-	 * - knapp unter der kleinsten ID, die erst danach gesehen wurde: Eine Kopie, die während des
-	 *   ersten Zyklus in einem schon gescannten Bereich entstand, hat eine kleinere ID als Dateien
-	 *   aus später gescannten Bereichen – sie galt unter 0.8.0 als neu und muss es bleiben.
-	 * Bestand oberhalb der Grenze zählt ab dem ersten Sehen, wird also höchstens später fällig, nie
-	 * früher.
+	 * Boundary between existing and new files, derived from the timestamp of the early 0.8.0 state (seen_since): the smaller of
+	 * two boundaries, both conservative –
+	 * - highest ID seen up to then: everything created afterwards has a higher ID (including a
+	 *   copy that had not even been seen yet at the update);
+	 * - just below the smallest ID that was only seen afterwards: a copy created during the
+	 *   first cycle in an area that had already been scanned has a smaller ID than files
+	 *   from areas scanned later – it counted as new under 0.8.0 and must stay that way.
+	 * Existing files above the boundary count from when they were first seen, so they can only become due later, never
+	 * earlier.
 	 *
-	 * @return int|null null = Tabelle leer, nichts abzuleiten
+	 * @return int|null null = table empty, nothing to derive
 	 */
 	public function lastIdSeenUntil(int $ts): ?int {
 		$max = $this->aggregate('max', $ts, 'lte');
@@ -50,8 +50,8 @@ class FirstSeen {
 	}
 
 	/**
-	 * Vermerkt $now für Dateien ohne Eintrag – gebündelt in einer Transaktion. Schon vorhandene
-	 * Einträge (paralleler Lauf, Wettlauf) bleiben unverändert: das frühere Datum gilt.
+	 * Records $now for files without an entry – batched in one transaction. Already existing
+	 * entries (parallel run, race) remain unchanged: the earlier date applies.
 	 *
 	 * @param list<int> $fileIds
 	 */
@@ -72,9 +72,9 @@ class FirstSeen {
 	}
 
 	/**
-	 * Aus dem Papierkorb zurückgeholt: „zuerst gesehen“ auf $now setzen, auch wenn schon ein
-	 * Eintrag von vor der Löschung besteht – ab hier zählt die Frist (ReferenceDate). Ein späteres
-	 * Datum als das eines parallelen Laufs schiebt die Fälligkeit nur nach hinten.
+	 * Restored from the trash bin: set "first seen" to $now, even if an entry from before the
+	 * deletion already exists – the retention period counts from here (ReferenceDate). A later
+	 * date than that of a parallel run only pushes the due date back.
 	 *
 	 * @param list<int> $fileIds
 	 */

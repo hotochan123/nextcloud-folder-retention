@@ -32,11 +32,11 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
 /**
- * Job-Steuerung: Zeitbudget, Cursor, Fortsetzen, Tageszyklus, Simulation vs. echt,
- * Neuprüfung vor dem Löschen, Fehler pro Datei, Sperren.
+ * Job control: time budget, cursor, resuming, daily cycle, simulation vs. real,
+ * recheck before deleting, per-file errors, locks.
  *
- * Zwei Team-Ordner A (Storage 1, Wurzel 100) und B (Storage 2, Wurzel 200) mit je drei
- * Dateien, alle weit über der Frist (Upload-Zeit 1, Standardregel 1 Tag).
+ * Two team folders A (storage 1, root 100) and B (storage 2, root 200) with three
+ * files each, all far past the retention period (upload time 1, default rule 1 day).
  */
 class RetentionRunnerTest extends TestCase {
 	private const NOW = 1_800_000_000;
@@ -47,20 +47,20 @@ class RetentionRunnerTest extends TestCase {
 	private TagService&MockObject $tags;
 	private bool $tagsEnabled = false;
 	private bool $tagApplyFails = false;
-	/** @var array<int, ?int> alle an TagService::apply übergebenen Wünsche */
+	/** @var array<int, ?int> all requests passed to TagService::apply */
 	private array $appliedTags = [];
 	private ?array $cursor = null;
 	private int $lastCycle = 0;
-	/** @var (callable(): void)|null Stand der App-Config nach Settings::refresh (anderer Prozess hat geschrieben) */
+	/** @var (callable(): void)|null app config state after Settings::refresh (another process has written) */
 	private $onRefresh = null;
 	private int $refreshes = 0;
 	private int $budget = 0;
 	private bool $simulation = true;
-	/** Simulationsschalter in der Datenbank (Settings::isSimulationFresh); null = wie $simulation */
+	/** Simulation switch in the database (Settings::isSimulationFresh); null = same as $simulation */
 	private ?bool $simulationDb = null;
-	/** Settings::blockRoot wirft (DB-Timeout, Deadlock) */
+	/** Settings::blockRoot throws (DB timeout, deadlock) */
 	private bool $blockFails = false;
-	/** nach dem Löschen dieser Datei schaltet ein Admin die Simulation ein (nur in der Datenbank) */
+	/** after this file is deleted, an admin turns on simulation mode (only in the database) */
 	private ?int $simulationOnAfter = null;
 	/** @var list<int> */
 	private array $deletedIds = [];
@@ -68,44 +68,44 @@ class RetentionRunnerTest extends TestCase {
 	private array $loggedIds = [];
 	/** @var list<LogEntry> */
 	private array $logged = [];
-	/** @var array<int, list<FileRow>> Storage → Dateien, wie fetchFiles sie liefert */
+	/** @var array<int, list<FileRow>> storage → files, as returned by fetchFiles */
 	private array $files = [];
-	/** @var array<int, FileRow> abweichender Stand bei der Neuprüfung (fileid → Zeile) */
+	/** @var array<int, FileRow> differing state at recheck (fileid → row) */
 	private array $freshRows = [];
-	/** Regeln ab dem zweiten snapshot()-Aufruf (= Neuprüfung), null = unverändert */
+	/** Rules from the second snapshot() call on (= recheck), null = unchanged */
 	private ?RuleSet $freshRules = null;
-	/** Frist der Standardregel (null = 1 Tag) */
+	/** Retention period of the default rule (null = 1 day) */
 	private ?Period $period = null;
-	/** @var array<int, string> fileid → Status, den der Deleter liefern soll */
+	/** @var array<int, string> fileid → status the Deleter should return */
 	private array $deleteResult = [];
-	/** @var list<int> Datei-IDs, bei denen der Deleter eine Ausnahme wirft */
+	/** @var list<int> file IDs for which the Deleter throws an exception */
 	private array $deleteThrows = [];
-	/** @var array<int, int> fileid → letzte Löschung laut Protokoll */
+	/** @var array<int, int> fileid → last deletion according to the log */
 	private array $lastDeleted = [];
-	/** @var list<int> per FirstSeen::record vermerkte Datei-IDs */
+	/** @var list<int> file IDs recorded via FirstSeen::record */
 	private array $recordedSeen = [];
-	/** @var list<int> per FirstSeen::recordRestored vermerkte Datei-IDs */
+	/** @var list<int> file IDs recorded via FirstSeen::recordRestored */
 	private array $recordedRestored = [];
 	/** @var array<string, array{label: string, reason: string, at: int}> */
 	private array $blocked = [];
 	private ?array $foreignLease = null;
 	private int $leaseReleased = 0;
-	/** ab der wievielten Verlängerung die Sperre einem anderen gehört (null = nie) */
+	/** from which renewal on the lock belongs to someone else (null = never) */
 	private ?int $leaseLostAt = null;
 	private int $leaseRenewals = 0;
-	/** Grenze Bestand/neu (Settings::seenMaxFileId): alle Standarddateien sind Bestand */
+	/** Boundary existing/new (Settings::seenMaxFileId): all default files are existing */
 	private ?int $seenMark = 1000;
-	/** höchste Datei-ID im Filecache (für die Grenze, falls sie fehlt) */
+	/** highest file ID in the file cache (for the boundary, if it is missing) */
 	private int $maxFileId = 1000;
-	/** @var list<int> an initSeenMaxFileId übergebene Werte */
+	/** @var list<int> values passed to initSeenMaxFileId */
 	private array $markInit = [];
-	/** @var array<int, list<array{0: RetentionRoot, 1: FileRow, 2: string}>> fileid → nach ihrem Löschen gemeldete Verluste */
+	/** @var array<int, list<array{0: RetentionRoot, 1: FileRow, 2: string}>> fileid → losses reported after deleting it */
 	private array $lostAfter = [];
 	/** @var list<array{0: RetentionRoot, 1: FileRow, 2: string}> */
 	private array $pendingLost = [];
-	/** @var array<int, string> per markDeletedFinal berichtigte Einträge */
+	/** @var array<int, string> entries corrected via markDeletedFinal */
 	private array $markedFinal = [];
-	/** Datei-ID, nach deren Löschversuch der Deleter „angehalten“ meldet */
+	/** File ID after whose deletion attempt the Deleter reports "halted" */
 	private ?int $haltAfter = null;
 	private ?string $halted = null;
 	private FirstSeen&MockObject $firstSeen;
@@ -236,7 +236,7 @@ class RetentionRunnerTest extends TestCase {
 			$this->markedFinal[$id] = $msg;
 			return true;
 		});
-		// wie die SQL-Abfrage: gleiche Datei, Regel, Frist (rule_label) und gleiches Bezugsdatum samt Quelle
+		// like the SQL query: same file, rule, retention period (rule_label) and same reference date incl. source
 		$this->logMapper->method('hasSimulated')->willReturnCallback(fn (int $id, ?int $ruleId, string $label, int $ref, string $source) => array_filter(
 			$this->logged,
 			fn (LogEntry $e) => $e->getFileId() === $id && $e->getMode() === LogEntry::MODE_SIMULATION && $e->getStatus() === LogEntry::STATUS_WOULD_DELETE
@@ -272,7 +272,7 @@ class RetentionRunnerTest extends TestCase {
 		$args = [$roots, $fileCache, new Evaluator(new RuleResolver()), $rules,
 			$this->settings, $this->deleter, $this->logMapper, $time, new NullLogger(), $this->tags, new RuleResolver(), $this->firstSeen, $random, FakeL10N::de(), $language];
 		if (!$cli) {
-			// cron.php im Web (AJAX/Webcron)
+			// cron.php via web (AJAX/webcron)
 			return new class(...$args) extends RetentionRunner {
 				protected function isCli(): bool {
 					return false;
@@ -284,7 +284,7 @@ class RetentionRunnerTest extends TestCase {
 
 	public function testBudgetZeroProcessesOneFilePerRunAndResumesAtCursor(): void {
 		$this->simulation = false;
-		$this->budget = 0; // Budget sofort erschöpft → genau eine Datei pro Lauf
+		$this->budget = 0; // budget exhausted immediately → exactly one file per run
 		$runner = $this->runner();
 
 		$runs = 0;
@@ -328,8 +328,8 @@ class RetentionRunnerTest extends TestCase {
 	}
 
 	public function testCursorIsReReadAfterAcquiringTheLease(): void {
-		// Prozess-Cache: cron.php kennt noch den Cursor von vor seinem Start; während er andere
-		// Jobs abarbeitete, hat ein anderer Lauf den Zyklus beendet
+		// Process cache: cron.php still knows the cursor from before it started; while it was working
+		// through other jobs, another run finished the cycle
 		$this->budget = 3600;
 		$this->cursor = ['root' => 'team:0000000001:000000000100', 'after' => 11];
 		$this->onRefresh = function () {
@@ -359,7 +359,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->deleter->expects($this->never())->method('delete');
 
 		$runner->runScheduled();
-		$this->lastCycle = 0; // nächsten Zyklus erzwingen
+		$this->lastCycle = 0; // force the next cycle
 		$runner->runScheduled();
 
 		$this->assertSame([11, 12, 13, 21, 22, 23], $this->loggedIds, 'zweiter Zyklus loggt nicht erneut');
@@ -371,19 +371,19 @@ class RetentionRunnerTest extends TestCase {
 		$runner->runFull(false, null);
 		$this->assertSame([11, 12, 13, 21, 22, 23], $this->loggedIds);
 
-		// Alteintrag wie von 0.7.x: anderes Bezugsdatum/andere Quelle → neuer, ehrlicher Eintrag
+		// Legacy entry as from 0.7.x: different reference date/source → new, honest entry
 		$this->logged[0]->setReferenceSource('mtime');
 		$this->logged[1]->setReferenceDate(0);
 		$runner->runFull(false, null);
 		$this->assertSame([11, 12, 13, 21, 22, 23, 11, 12], $this->loggedIds);
 
-		// Friständerung an derselben Regel: rule_label ändert sich → alle neu
+		// Retention period changed on the same rule: rule_label changes → all new
 		$this->period = Period::of(2, PeriodUnit::Day);
 		$runner->runFull(false, null);
 		$this->assertSame([11, 12, 13, 21, 22, 23, 11, 12, 11, 12, 13, 21, 22, 23], $this->loggedIds);
 		$this->assertSame('Standard: 2 Tage', end($this->logged)->getRuleLabel());
 
-		// unverändert: keine Wiederholung
+		// unchanged: no repetition
 		$runner->runFull(false, null);
 		$this->assertCount(14, $this->loggedIds);
 	}
@@ -455,12 +455,12 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame(6, $stats->deleted);
 	}
 
-	// --- Neuprüfung unmittelbar vor dem Löschen (F6) ---------------------------------
+	// --- Recheck immediately before deleting (F6) ------------------------------------
 
 	public function testMovedSinceScanIsSkippedNotDeleted(): void {
 		$this->simulation = false;
 		$runner = $this->runner();
-		// Zwischen Scan und Löschen in einen anderen Ordner verschoben – mtime bleibt dabei gleich
+		// Moved to another folder between scan and delete – mtime stays the same
 		$this->freshRows[12] = new FileRow(12, 1, 150, '__groupfolders/1/Behalten/b', 1, null, 1);
 
 		$stats = $runner->runFull(false, null);
@@ -475,7 +475,7 @@ class RetentionRunnerTest extends TestCase {
 	public function testParentChainIsResolvedFreshNotFromScanCache(): void {
 		$this->simulation = false;
 		$runner = $this->runner();
-		// Gleicher Pfad im Datensatz, aber der Elternordner hängt nicht mehr unter der Wurzel
+		// Same path in the record, but the parent folder no longer sits under the root
 		$this->freshRows[21] = new FileRow(21, 2, 999, '__groupfolders/2/a', 1, null, 1);
 
 		$runner->runFull(false, null);
@@ -496,7 +496,7 @@ class RetentionRunnerTest extends TestCase {
 	public function testRuleChangedSinceScanIsSkipped(): void {
 		$this->simulation = false;
 		$runner = $this->runner();
-		// Admin hat die Standardfrist inzwischen auf „Nie“ gestellt
+		// Admin has since set the default retention period to "Never"
 		$this->freshRules = new RuleSet(new RetentionRule(1, null, Period::never(), null), []);
 
 		$stats = $runner->runFull(false, null);
@@ -509,7 +509,7 @@ class RetentionRunnerTest extends TestCase {
 	public function testOtherRuleAtRecheckIsSkipped(): void {
 		$this->simulation = false;
 		$runner = $this->runner();
-		// Neue Ordnerregel an der Wurzel (gleiche Frist, andere Regel)
+		// New folder rule at the root (same retention period, different rule)
 		$this->freshRules = new RuleSet(new RetentionRule(1, null, Period::of(1, PeriodUnit::Day), null),
 			[100 => new RetentionRule(5, 100, Period::of(1, PeriodUnit::Day), \OCA\FolderRetention\Model\Scope::Inherit)]);
 
@@ -519,7 +519,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertStringContainsString('Regel', (string)$this->logEntryFor(11)->getMessage());
 	}
 
-	// --- Wiederhergestellte Dateien und „zuerst gesehen“ (F3, F4) ---------------------
+	// --- Restored files and "first seen" (F3, F4) -----------------------------------
 
 	public function testRestoredFileIsNotDeletedAgain(): void {
 		$this->simulation = false;
@@ -532,7 +532,7 @@ class RetentionRunnerTest extends TestCase {
 	}
 
 	public function testFileRestoredLongAfterDeletionCountsFromRestore(): void {
-		// Regel 1 Tag; vor 10 Tagen gelöscht, erst jetzt zurückgeholt (Eintrag von vor der Löschung)
+		// Rule 1 day; deleted 10 days ago, only restored now (entry from before the deletion)
 		$this->simulation = false;
 		$this->lastDeleted = [11 => self::NOW - 86400 * 10];
 		$this->files = [
@@ -546,7 +546,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame([], $this->recordedSeen);
 		$this->assertSame([12], $this->deletedIds, 'zurückgeholt → nicht sofort wieder weg');
 
-		// Ein Tag nach der Wiederherstellung (first_seen jetzt danach) ist sie wieder fällig
+		// One day after the restore (first_seen now after it) it is due again
 		$this->recordedRestored = [];
 		$this->deletedIds = [];
 		$this->files[1] = [new FileRow(11, 1, 100, '__groupfolders/1/a', 1, 1, 1, firstSeen: self::NOW - 86400 * 2)];
@@ -593,7 +593,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame([11], $this->recordedSeen);
 	}
 
-	// --- Fehler pro Datei (F10) --------------------------------------------------------
+	// --- Per-file errors (F10) ----------------------------------------------------------
 
 	public function testExceptionForOneFileDoesNotStopTheRun(): void {
 		$this->simulation = false;
@@ -635,7 +635,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame(1, $stats->errors);
 	}
 
-	// --- Endgültige Löschung erkannt (F2) ---------------------------------------------
+	// --- Permanent deletion detected (F2) ----------------------------------------------
 
 	public function testPermanentDeletionBlocksRootButNotOthers(): void {
 		$this->simulation = false;
@@ -670,7 +670,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame(6, $stats->simulated);
 	}
 
-	// --- Sperre gegen parallele Läufe (F9) --------------------------------------------
+	// --- Lock against parallel runs (F9) -----------------------------------------------
 
 	public function testRunFullRefusesWhileLocked(): void {
 		$this->simulation = false;
@@ -711,7 +711,7 @@ class RetentionRunnerTest extends TestCase {
 
 	public function testLeaseLostMidRunStopsDeleting(): void {
 		$this->simulation = false;
-		// erste Löschung: Sperre verlängert; zweite: inzwischen von einem anderen Lauf übernommen
+		// first deletion: lock renewed; second: meanwhile taken over by another run
 		$this->leaseLostAt = 2;
 		$runner = $this->runner();
 
@@ -736,7 +736,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame(0, $this->lastCycle);
 	}
 
-	// --- Ausnahme im Papierkorb: Rest des Laufs angehalten (Deleter::haltReason) ------
+	// --- Exception in the trash bin: rest of the run halted (Deleter::haltReason) -----
 
 	public function testHaltedDeleterStopsTheWholeRun(): void {
 		$this->simulation = false;
@@ -753,20 +753,20 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertNull($this->logEntryFor(13), 'angehaltene Dateien werden nicht einzeln protokolliert');
 	}
 
-	// --- „zuerst gesehen“ auch neben Upload-Zeit (Kopien): Grenze über die Datei-ID --------
+	// --- "first seen" also alongside upload time (copies): boundary via the file ID -------
 
 	public function testCopyWithInheritedUploadTimeCountsFromFirstSeen(): void {
 		$this->simulation = false;
-		$this->seenMark = 20; // höchste Datei-ID beim Update
+		$this->seenMark = 20; // highest file ID at the update
 		$this->files = [
 			1 => [
-				// Bestand, erst jetzt im ersten 0.8-Zyklus gesehen: Upload-Zeit gilt
+				// existing, only now seen in the first 0.8 cycle: upload time applies
 				new FileRow(12, 1, 100, '__groupfolders/1/bestand', 1, 1, 1, firstSeen: self::NOW - 3600),
-				// Kopie nach dem Update: erbt upload_time 1 des Originals, noch nie gesehen
+				// copy after the update: inherits upload_time 1 from the original, never seen yet
 				new FileRow(21, 1, 100, '__groupfolders/1/kopie', 1, 1, 1),
-				// nach dem Update entstanden, vor 40 Tagen zuerst gesehen – Frist 1 Tag um
+				// created after the update, first seen 40 days ago – 1-day retention period has passed
 				new FileRow(22, 1, 100, '__groupfolders/1/alt', 1, 1, 1, firstSeen: self::NOW - 86400 * 40),
-				// nach dem Update entstanden, vor einer Stunde zuerst gesehen – Frist noch nicht um
+				// created after the update, first seen an hour ago – retention period not yet passed
 				new FileRow(23, 1, 100, '__groupfolders/1/neu', 1, 1, 1, firstSeen: self::NOW - 3600),
 			],
 			2 => [],
@@ -779,14 +779,14 @@ class RetentionRunnerTest extends TestCase {
 	}
 
 	public function testCopyAppearingDuringFirstCycleIsProtected(): void {
-		// Der erste Zyklus nach dem Update verteilt sich über mehrere Job-Ausführungen; eine in
-		// dieser Zeit angelegte Kopie zählt trotzdem ab dem ersten Sehen, nicht als Bestand
+		// The first cycle after the update spans several job executions; a copy created during
+		// that time still counts from when it was first seen, not as existing
 		$this->simulation = false;
 		$this->budget = 0;
 		$this->seenMark = 20;
 		$this->files = [
 			1 => [new FileRow(11, 1, 100, '__groupfolders/1/a', 1, null, 1), new FileRow(12, 1, 100, '__groupfolders/1/b', 1, null, 1)],
-			// Kopie im noch nicht gescannten Bereich (nach der ersten Ausführung angelegt) – erbt die alte Upload-Zeit
+			// copy in the not-yet-scanned area (created after the first execution) – inherits the old upload time
 			2 => [new FileRow(15, 2, 200, '__groupfolders/2/a', 1, null, 1), new FileRow(25, 2, 200, '__groupfolders/2/kopie', 1, 1, 1)],
 		];
 		$runner = $this->runner();
@@ -823,7 +823,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame([], $this->markInit);
 	}
 
-	// --- Web-Cron: nur System-Cron/occ löscht ----------------------------------------
+	// --- Web cron: only system cron/occ deletes --------------------------------------
 
 	public function testWebCronDoesNothing(): void {
 		$this->simulation = false;
@@ -840,7 +840,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame([], $this->blocked, 'keine Sperre gesetzt');
 	}
 
-	// --- Papierkorb-Eintrag nachträglich überschrieben (gleicher Name, gleiche Sekunde) ---
+	// --- Trash bin entry overwritten afterwards (same name, same second) ---
 
 	public function testLostTrashEntryIsCorrectedInLogAndBlocksRoot(): void {
 		$this->simulation = false;
@@ -888,7 +888,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame(1, $this->leaseReleased);
 	}
 
-	// --- Fehler beim Sperren verfälscht das Protokoll nicht ---
+	// --- Error while blocking does not falsify the log ---
 
 	public function testFailingBlockKeepsDeletedFinalInLogAndStopsArea(): void {
 		$this->simulation = false;
@@ -923,7 +923,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertSame(1, $stats->errors);
 	}
 
-	// --- Simulation mitten im Lauf eingeschaltet (Notbremse) ---
+	// --- Simulation mode turned on mid-run (emergency brake) ---
 
 	public function testSimulationSwitchedOnDuringRunFullStopsDeleting(): void {
 		$this->simulation = false;
@@ -946,7 +946,7 @@ class RetentionRunnerTest extends TestCase {
 	public function testSimulationSwitchedOnStopsTheJobToo(): void {
 		$this->simulation = false;
 		$this->budget = 3600;
-		$this->simulationDb = true; // nach Prozessstart (cron.php) eingeschaltet, Cache sagt noch AUS
+		$this->simulationDb = true; // turned on after process start (cron.php), cache still says OFF
 
 		$stats = $this->runner()->runScheduled();
 
@@ -960,7 +960,7 @@ class RetentionRunnerTest extends TestCase {
 		$this->simulationDb = true;
 		$runner = $this->runner();
 		$runner->runFull(false, null);
-		$this->simulationDb = false; // wieder ausgeschaltet
+		$this->simulationDb = false; // turned off again
 		$this->logged = [];
 		$runner->runFull(false, null);
 		$this->assertSame([11, 12, 13, 21, 22, 23], $this->deletedIds);

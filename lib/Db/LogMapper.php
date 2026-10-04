@@ -11,10 +11,10 @@ use OCP\IDBConnection;
 /**
  * @extends QBMapper<LogEntry>
  *
- * Filter (alle optional): mode (real|simulation – nur API und CSV, die Oberfläche filtert nicht danach), status (deleted|would_delete|skipped|error –
- * „error“ schließt endgültige Löschungen ein),
- * search (Teil des Pfads), from/to (Unix-Zeitstempel, einschließlich),
- * folder (genau dieser Elternordner des Pfads, ohne Unterordner; '' = Pfade ohne Ordner).
+ * Filters (all optional): mode (real|simulation – API and CSV only, the UI does not filter by it), status (deleted|would_delete|skipped|error –
+ * "error" includes permanent deletions),
+ * search (part of the path), from/to (Unix timestamps, inclusive),
+ * folder (exactly this parent folder of the path, without subfolders; '' = paths without a folder).
  * @psalm-type LogFilter = array{mode?: ?string, status?: ?string, search?: ?string, from?: ?int, to?: ?int, folder?: ?string}
  */
 class LogMapper extends QBMapper {
@@ -24,7 +24,7 @@ class LogMapper extends QBMapper {
 
 	/**
 	 * @param LogFilter $filter
-	 * @return list<LogEntry> neueste zuerst
+	 * @return list<LogEntry> newest first
 	 */
 	public function findPage(int $limit, int $offset, array $filter = []): array {
 		$qb = $this->db->getQueryBuilder();
@@ -48,7 +48,7 @@ class LogMapper extends QBMapper {
 	}
 
 	/**
-	 * Alle passenden Einträge in Blöcken, neueste zuerst (für den CSV-Export).
+	 * All matching entries in chunks, newest first (for the CSV export).
 	 *
 	 * @param LogFilter $filter
 	 * @return \Generator<LogEntry>
@@ -60,7 +60,7 @@ class LogMapper extends QBMapper {
 	}
 
 	/**
-	 * Nur die Spalten für Tages- und Ordnerübersicht, in Blöcken, neueste zuerst.
+	 * Only the columns for the per-day and per-folder overview, in chunks, newest first.
 	 *
 	 * @param LogFilter $filter
 	 * @return \Generator<array{path: string, status: string, deleted_at: int}>
@@ -72,10 +72,10 @@ class LogMapper extends QBMapper {
 	}
 
 	/**
-	 * Zeilen in Blöcken nach id absteigend – weiter ab der kleinsten id des letzten Blocks statt
-	 * per Offset, damit neue Einträge während des Lesens nichts verschieben.
+	 * Rows in chunks by id descending – continuing from the smallest id of the previous chunk instead
+	 * of using an offset, so that new entries written while reading don't shift anything.
 	 *
-	 * @param list<string> $columns muss id enthalten
+	 * @param list<string> $columns must include id
 	 * @param LogFilter $filter
 	 * @return \Generator<array<string, mixed>>
 	 */
@@ -128,11 +128,11 @@ class LogMapper extends QBMapper {
 		if (!empty($filter['to'])) {
 			$qb->andWhere($qb->expr()->lte('deleted_at', $qb->createNamedParameter($filter['to'], IQueryBuilder::PARAM_INT)));
 		}
-		// Gleiche Abgrenzung wie LogSummary::folderOf(): direkter Elternordner, keine Unterordner.
-		// NOT (… LIKE …) statt notLike(): notLike() hängt auf SQLite und Oracle kein ESCAPE an,
-		// ein Ordner mit „%“ oder „_“ im Namen zeigte sonst auch seine Unterordner.
-		// Bekannter Randfall: MySQL/MariaDB vergleichen mit *_ci-Collation ohne Groß-/Kleinschreibung,
-		// „Docs“ zeigt dort auch die Dateien aus „docs“, die die Übersicht getrennt zählt.
+		// Same boundary as LogSummary::folderOf(): direct parent folder, no subfolders.
+		// NOT (… LIKE …) instead of notLike(): notLike() appends no ESCAPE on SQLite and Oracle,
+		// so a folder with "%" or "_" in its name would otherwise also show its subfolders.
+		// Known edge case: MySQL/MariaDB compare case-insensitively with a *_ci collation,
+		// so "Docs" there also shows the files from "docs", which the overview counts separately.
 		if (isset($filter['folder'])) {
 			$prefix = $filter['folder'] === '' ? '' : $this->db->escapeLikeParameter($filter['folder']) . '/';
 			if ($prefix !== '') {
@@ -143,11 +143,11 @@ class LogMapper extends QBMapper {
 	}
 
 	/**
-	 * Letzte echte Löschung je Datei-ID (mode real, status deleted). Wird eine Datei aus dem
-	 * Papierkorb wiederhergestellt, behält sie ihre ID – ab diesem Zeitpunkt zählt die Frist neu.
+	 * Last real deletion per file ID (mode real, status deleted). When a file is restored from the
+	 * trash bin it keeps its ID – from that point on the retention period starts over.
 	 *
 	 * @param list<int> $fileIds
-	 * @return array<int, int> fileid → Zeitpunkt
+	 * @return array<int, int> fileid → timestamp
 	 */
 	public function lastDeleted(array $fileIds): array {
 		$out = [];
@@ -169,11 +169,11 @@ class LogMapper extends QBMapper {
 	}
 
 	/**
-	 * Nachträglich als endgültig gelöscht kennzeichnen: Die Datei galt als in den Papierkorb
-	 * verschoben (status deleted), ihr Papierkorb-Eintrag ist aber verloren gegangen. Betrifft
-	 * den neuesten echten „deleted“-Eintrag dieser Datei-ID.
+	 * Retroactively mark as permanently deleted: the file was considered moved to the trash bin
+	 * (status deleted), but its trash bin entry has been lost. Applies to
+	 * the newest real "deleted" entry for this file ID.
 	 *
-	 * @return bool false = kein solcher Eintrag (z. B. Protokollieren war fehlgeschlagen)
+	 * @return bool false = no such entry (e.g. logging had failed)
 	 */
 	public function markDeletedFinal(int $fileId, string $message): bool {
 		$qb = $this->db->getQueryBuilder();
@@ -199,11 +199,11 @@ class LogMapper extends QBMapper {
 	}
 
 	/**
-	 * Im Simulationsmodus wird eine Datei nur einmal pro Bewertung geloggt, sonst füllt der
-	 * tägliche Lauf das Log mit Wiederholungen. Der erste Eintrag zeigt, seit wann sie fällig ist.
-	 * Bewertung = Regel samt Frist (rule_label nennt sie) und Bezugsdatum samt Quelle: Ändert sich
-	 * eines davon (Friständerung, Update von 0.7.x mit altem Bezugsdatum, neue Upload-Zeit), kommt
-	 * ein neuer Eintrag – sonst stünde im Log weiter ein veraltetes „würde löschen“.
+	 * In simulation mode a file is logged only once per evaluation, otherwise the daily run
+	 * fills the log with repeats. The first entry shows since when it has been due.
+	 * Evaluation = rule including its retention period (rule_label names it) and reference date including its source: if
+	 * any of these changes (period change, update from 0.7.x with an old reference date, new upload time), a
+	 * new entry is written – otherwise the log would keep showing an outdated "would delete".
 	 */
 	public function hasSimulated(int $fileId, ?int $ruleId, string $ruleLabel, int $referenceDate, string $referenceSource): bool {
 		$qb = $this->db->getQueryBuilder();

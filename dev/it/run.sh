@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
-# Integrations-Harness für folder_retention: startet eine Wegwerf-Nextcloud (SQLite, ohne
-# Port-Freigabe), spielt die Datenverlust-Szenarien aus dem Audit zu 0.7.4 nach und gibt je
-# Szenario eine maschinenlesbare Zeile aus:
+# Integration harness for folder_retention: starts a throwaway Nextcloud (SQLite, without a
+# published port), replays the data-loss scenarios from the 0.7.4 audit and prints one
+# machine-readable line per scenario:
 #   PASS|FAIL|SKIP <id> <text>
-# Letzte Zeile: "Harness <pass>/<fail>/<skip>", Exitcode 1 bei mindestens einem FAIL.
-# Diagnose (was gerade passiert) geht nach stderr.
+# Last line: "Harness <pass>/<fail>/<skip>", exit code 1 if at least one FAIL.
+# Diagnostics (what is happening right now) go to stderr.
 #
-# Umgebung:
-#   IMAGE=nextcloud:34.0.4-apache   Nextcloud-Image (35 geht auch, groupfolders wird passend gewählt)
-#   APP_SRC=<Repo-Arbeitsbaum>      Quelle der App; ohne js/ wird mit node:24-alpine gebaut
-#   ONLY=S1,S3                      nur diese Szenarien (Vorbereitung läuft immer)
-#   KEEP=1                          Container + Arbeitsverzeichnis am Ende stehen lassen
-#   GF_TAG=v22.0.6                  groupfolders-Release fest vorgeben (sonst: neueste passende von GitHub)
-#   OLD_REV=fb4395c                 Ausgangsstand für das Update-Szenario S24
-#   NO_GF=1                         groupfolders gar nicht erst versuchen (S8 = SKIP)
-#   FRET_IT_PREFIX=fret-a-          Container-Präfix (Standard fret-it-), für parallele Läufe
+# Environment:
+#   IMAGE=nextcloud:34.0.4-apache   Nextcloud image (35 works too, groupfolders is chosen to match)
+#   APP_SRC=<repo working tree>     source of the app; without js/ it is built with node:24-alpine
+#   ONLY=S1,S3                      only these scenarios (setup always runs)
+#   KEEP=1                          leave the container + work directory in place at the end
+#   GF_TAG=v22.0.6                  pin the groupfolders release (otherwise: newest matching one from GitHub)
+#   OLD_REV=fb4395c                 starting state for the update scenario S24
+#   NO_GF=1                         do not even try groupfolders (S8 = SKIP)
+#   FRET_IT_PREFIX=fret-a-          container prefix (default fret-it-), for parallel runs
 #
-# Niemals gegen die Produktivinstanz: Der Harness legt ausschließlich eigene Container fret-it-* an.
+# Never against the production instance: the harness only ever creates its own fret-it-* containers.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 IMAGE="${IMAGE:-nextcloud:34.0.4-apache}"
 APP_SRC="$(cd "${APP_SRC:-$REPO}" && pwd)"
-# FRET_IT_PREFIX: eigener Präfix, wenn mehrere Harness-Läufe parallel laufen (z. B. fret-a-)
+# FRET_IT_PREFIX: own prefix when several harness runs happen in parallel (e.g. fret-a-)
 C="${FRET_IT_PREFIX:-fret-it-}$$"
 ONLY="${ONLY:-}"
 KEEP="${KEEP:-0}"
@@ -52,17 +52,17 @@ trap cleanup EXIT
 
 info() { echo "  · $*" >&2; }
 
-# ---------------------------------------------------------------- Helfer im Container
+# ---------------------------------------------------------------- helpers in the container
 
 occ() { docker exec -u www-data "$C" php occ "$@"; }
 
-# SQL gegen die SQLite-DB der Wegwerf-Instanz (Tabellenpräfix oc_)
+# SQL against the SQLite DB of the throwaway instance (table prefix oc_)
 sql() { docker exec -u www-data "$C" php /tmp/fret-sql.php "$@"; }
 
 now() { date +%s; }
 ago() { echo $(( $(now) - $1 * 86400 )); }
 
-# Datei per WebDAV hochladen; optional mit X-OC-CTime (landet in filecache_extended.creation_time)
+# Upload a file via WebDAV; optionally with X-OC-CTime (ends up in filecache_extended.creation_time)
 put() {
 	local user=$1 path=$2 ctime=${3:-}
 	local hdr=()
@@ -71,24 +71,24 @@ put() {
 		"http://localhost/remote.php/dav/files/$user/$path"
 }
 
-# PROPFIND richtet das Dateisystem des Kontos ein → Home- und Team-Ordner-Mounts landen in
-# oc_mounts, lastLogin wird gesetzt (RootProvider sieht nur „gesehene“ Konten).
+# PROPFIND sets up the account's file system → home and team folder mounts end up in
+# oc_mounts, lastLogin gets set (RootProvider only sees "seen" accounts).
 touch_fs() {
 	docker exec "$C" curl -sf -o /dev/null -u "$1:$PW" -X PROPFIND -H 'Depth: 1' \
 		"http://localhost/remote.php/dav/files/$1/"
 }
 
-# fileid der lebenden Datei (nicht Papierkorb/Versionen) über den eindeutigen Dateinamen
+# fileid of the live file (not trash bin/versions) via the unique file name
 fid() {
 	sql "SELECT fileid FROM oc_filecache WHERE name = ? AND path NOT LIKE 'files_trashbin/%'
 		AND path NOT LIKE 'files_versions/%' AND path NOT LIKE 'trash/%' AND path NOT LIKE 'versions/%'
 		ORDER BY fileid DESC LIMIT 1" "$1"
 }
 
-# Datei „altern“ lassen: oc_filecache.mtime sowie oc_filecache_extended.upload_time und
-# .creation_time auf <tage> (bzw. <ctime-tage>) vor jetzt setzen. storage_mtime bleibt, damit
-# kein Scanner den Eintrag „repariert“. Dazu „zuerst gesehen“ (0.8.0): Ohne den Eintrag sähe die
-# frisch angelegte Datei mit alter Upload-Zeit aus wie eine Kopie und zählte ab dem ersten Lauf.
+# Let a file "age": set oc_filecache.mtime and oc_filecache_extended.upload_time and
+# .creation_time to <days> (or <ctime-days>) before now. storage_mtime stays so that
+# no scanner "repairs" the entry. Plus "first seen" (0.8.0): without that entry the
+# freshly created file with an old upload time would look like a copy and count from the first run.
 age() {
 	local name=$1 days=$2 cdays=${3:-$2} id
 	id=$(fid "$name")
@@ -96,7 +96,7 @@ age() {
 	age_id "$id" "$days" "$cdays"
 }
 
-# wie age, aber über die fileid (für gleichnamige Dateien)
+# like age, but via the fileid (for files with the same name)
 age_id() {
 	local id=$1 days=$2 cdays=${3:-$2} ts cts
 	ts=$(ago "$days")
@@ -107,46 +107,46 @@ age_id() {
 	seen "$id" "$ts"
 }
 
-# „zuerst gesehen“ setzen (nur, wenn die Tabelle existiert – ältere Stände ohne 0.8-Migration)
+# set "first seen" (only if the table exists – older states without the 0.8 migration)
 seen() {
 	sql "INSERT OR REPLACE INTO oc_folder_retention_seen (file_id, first_seen) SELECT ?, ?
 		WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'oc_folder_retention_seen')" "$1" "$2"
 }
 
-# fileid einer Datei im Home von <user> über den Pfad unter files/
+# fileid of a file in <user>'s home via the path below files/
 fid_path() {
 	sql "SELECT f.fileid FROM oc_filecache f JOIN oc_storages s ON s.numeric_id = f.storage
 		WHERE s.id = ? AND f.path = ?" "home::$1" "files/$2"
 }
 
 in_files() { docker exec "$C" test -f "/var/www/html/data/$1/files/$2"; }
-# Papierkorb-Kopie liegt als <name>.d<timestamp> in files_trashbin/files
+# the trash bin copy lives as <name>.d<timestamp> in files_trashbin/files
 in_trash() {
 	docker exec "$C" sh -c "ls /var/www/html/data/$1/files_trashbin/files/ 2>/dev/null | grep -q '^$2\.d[0-9]'"
 }
-# irgendwo auf der Platte (Dateien, Papierkorb, Team-Ordner samt Papierkorb)?
+# anywhere on disk (files, trash bin, team folders including their trash bin)?
 anywhere() { docker exec "$C" sh -c "find /var/www/html/data -name '$1*' | grep -q ."; }
 
-# Log der App zu einer Datei: "mode:status" je Zeile, älteste zuerst
+# The app's log for a file: "mode:status" per line, oldest first
 logrows() {
 	sql "SELECT mode || ':' || status || CASE WHEN message IS NULL THEN '' ELSE ' (' || message || ')' END
 		FROM oc_folder_retention_log WHERE path LIKE ? ORDER BY id" "%$1"
 }
 last_status() { logrows "$1" | tail -n1; }
 
-# Aufbewahrungslauf per occ; Ausgabe nach $WORK/<tag>.txt, Exitcode egal (Fehler → FAILURE)
+# Retention run via occ; output to $WORK/<tag>.txt, exit code ignored (error → FAILURE)
 retention_run() {
 	occ folder_retention:run > "$WORK/$1.txt" 2>&1 || true
 }
 
-# Sicherheitssperren (oc_folder_retention_block) als „schlüssel@zeitpunkt“, sortiert
+# Safety blocks (oc_folder_retention_block) as "key@timestamp", sorted
 blocks() {
 	sql "SELECT block_key || '@' || blocked_at FROM oc_folder_retention_block WHERE block_key LIKE ? ORDER BY block_key" "${1:-%}" | paste -sd' '
 }
 
 set_sim() { occ config:app:set folder_retention simulation_mode --value="$1" --type=boolean >/dev/null; }
 
-# Beide Standardregeln (allgemein + persönliche Ordner, folder_id NULL) direkt in der DB setzen
+# Set both default rules (general + personal folders, folder_id NULL) directly in the DB
 set_default_rules() {
 	local unit=$1 value=${2:-}
 	if [[ "$unit" == never ]]; then
@@ -177,7 +177,7 @@ scenario() {
 	fi
 }
 
-# ---------------------------------------------------------------- Aufbau
+# ---------------------------------------------------------------- setup
 
 build_js_if_needed() {
 	if compgen -G "$APP_SRC/js/*.mjs" >/dev/null || compgen -G "$APP_SRC/js/*.js" >/dev/null; then
@@ -189,7 +189,7 @@ build_js_if_needed() {
 		|| { echo "js-Build fehlgeschlagen, siehe $WORK/js-build.txt" >&2; exit 2; }
 }
 
-# $1 (optional): Funktion, die vor dem ersten Start Dateien in den angelegten Container legt
+# $1 (optional): function that puts files into the created container before the first start
 start_nc() {
 	local prep=${1:-}
 	info "starte $C aus $IMAGE"
@@ -203,7 +203,7 @@ start_nc() {
 	local i
 	for i in $(seq 1 120); do
 		if occ status --output=json 2>/dev/null | grep -q '"installed":true'; then
-			# Installation fertig heißt noch nicht, dass Apache schon antwortet
+			# installation finished does not yet mean Apache is already answering
 			if docker exec "$C" curl -sf -o /dev/null http://localhost/status.php; then
 				return 0
 			fi
@@ -223,7 +223,7 @@ install_groupfolders() {
 	fi
 	local major gfmajor tag
 	major=$(occ status --output=json | sed -n 's/.*"versionstring":"\([0-9]*\)\..*/\1/p')
-	# groupfolders zählt seit NC 30 = v18 im Gleichschritt: v(NC-12)
+	# groupfolders has counted in lockstep since NC 30 = v18: v(NC-12)
 	gfmajor=$((major - 12))
 	tag="${GF_TAG:-}"
 	if [[ -z "$tag" ]]; then
@@ -251,11 +251,11 @@ install_groupfolders() {
 	fi
 }
 
-# $1 (optional): Quelle statt APP_SRC; $2 (optional): nur kopieren, nicht aktivieren
+# $1 (optional): source instead of APP_SRC; $2 (optional): only copy, do not enable
 install_app() {
 	local src=${1:-$APP_SRC}
 	info "kopiere App aus $src"
-	# Wie scripts/deploy-test.sh: nur, was zur Laufzeit gebraucht wird
+	# Like scripts/deploy-test.sh: only what is needed at runtime
 	tar -C "$src" --exclude=./vendor --exclude=./tests --exclude=./.git --exclude=./node_modules \
 		--exclude=./src --exclude=./scripts --exclude=./dev --exclude="*.map" --exclude=./package-lock.json -cf - . \
 		| docker exec -i "$C" sh -c 'rm -rf /var/www/html/custom_apps/folder_retention \
@@ -273,7 +273,7 @@ setup() {
 	start_nc
 	docker exec -i "$C" sh -c 'cat > /tmp/fret-sql.php' < "$HERE/sql.php"
 	docker exec -i "$C" sh -c 'cat > /tmp/fret-proc.php' < "$HERE/proc.php"
-	# Kein AJAX-Cron: sonst liefe RetentionJob unkontrolliert bei WebDAV-Anfragen mit
+	# No AJAX cron: otherwise RetentionJob would run uncontrolled along with WebDAV requests
 	occ background:cron >/dev/null
 	occ config:system:set default_timezone --value="$NC_TZ" >/dev/null
 	install_groupfolders
@@ -285,9 +285,9 @@ setup() {
 	done
 }
 
-# ---------------------------------------------------------------- Szenarien
+# ---------------------------------------------------------------- scenarios
 
-# S5 zuerst: braucht den Zustand direkt nach der Installation
+# S5 first: needs the state right after installation
 s5() {
 	put alice s5-fresh.txt
 	age s5-fresh.txt 60
@@ -308,9 +308,9 @@ s5() {
 	fi
 }
 
-# Regeln für alle weiteren Szenarien: beide Standardregeln 1 Tag ab Erstellung/Ablage
+# Rules for all further scenarios: both default rules 1 day from creation/upload
 prepare_rules() {
-	occ folder_retention:run --dry-run >/dev/null 2>&1 || true # legt fehlende Standardregeln an
+	occ folder_retention:run --dry-run >/dev/null 2>&1 || true # creates missing default rules
 	set_default_rules day 1
 	info "Standardregeln jetzt: $(sql "SELECT COALESCE(target, 'allgemein') || '=' || COALESCE(period_value, '') || period_unit FROM oc_folder_retention_rules WHERE folder_id IS NULL" | paste -sd' ')"
 }
@@ -387,7 +387,7 @@ s2() {
 
 s3() {
 	set_sim false
-	put erin s3-ctime.txt 1420070400 # X-OC-CTime: 01.01.2015
+	put erin s3-ctime.txt 1420070400 # X-OC-CTime: 2015-01-01
 	local ext
 	ext=$(sql "SELECT 'creation_time=' || e.creation_time || ' upload_time=' || e.upload_time FROM oc_filecache_extended e WHERE e.fileid = ?" "$(fid s3-ctime.txt)")
 	retention_run s3
@@ -439,7 +439,7 @@ s9() {
 	fi
 }
 
-# Team-Ordner anlegen, Gruppe mit Mitgliedern berechtigen, Mounts einrichten; gibt die ID aus
+# Create a team folder, grant a group with members access, set up mounts; prints the ID
 gf_create() {
 	local name=$1 group=$2 gid u
 	shift 2
@@ -450,12 +450,12 @@ gf_create() {
 	done
 	occ groupfolders:group "$gid" "$group" write share delete >/dev/null
 	for u in "$@"; do
-		touch_fs "$u" # Team-Ordner-Mount in oc_mounts
+		touch_fs "$u" # team folder mount in oc_mounts
 	done
 	echo "$gid"
 }
 
-# Liegt <name> im groupfolders-Papierkorb (DB-Eintrag UND Datei auf der Platte)?
+# Is <name> in the groupfolders trash bin (DB entry AND file on disk)?
 gf_trashed() {
 	[[ "$(sql "SELECT COUNT(*) FROM oc_group_folders_trash WHERE name = ?" "$1")" -ge 1 ]] \
 		&& docker exec "$C" sh -c "find /var/www/html/data/__groupfolders -path '*trash*' -name '$1.d*' | grep -q ."
@@ -471,8 +471,8 @@ s8() {
 	gid=$(gf_create Teamordner team alice)
 	put alice Teamordner/s8-team.txt
 	age s8-team.txt 10
-	# Im selben Lauf vorher eine persönliche Datei von bob (home:* sortiert vor team:*):
-	# Danach muss der Team-Ordner trotzdem im passenden Kontext gelöscht werden.
+	# Earlier in the same run a personal file of bob (home:* sorts before team:*):
+	# the team folder must still be deleted in the right context afterwards.
 	put bob s8-bob.txt
 	age s8-bob.txt 10
 	retention_run s8
@@ -489,8 +489,8 @@ s8() {
 	fi
 }
 
-# Team-Ordner-Datei, die ein Mitglied zusätzlich direkt an ein anderes Mitglied teilt:
-# Die Sicht des Empfängers darf nicht nur die Freigabe entfernen (B7).
+# Team folder file that a member additionally shares directly with another member:
+# the recipient's view must not merely remove the share (B7).
 s11() {
 	if [[ "$GF_OK" != 1 ]]; then
 		result SKIP S11 "groupfolders nicht verfügbar: $GF_WHY"
@@ -516,7 +516,7 @@ s11() {
 	fi
 }
 
-# Datei direkt ins Datenverzeichnis legen (<MB> Nullbytes) und per files:scan aufnehmen
+# Put a file directly into the data directory (<MB> zero bytes) and pick it up via files:scan
 mkfile() {
 	local user=$1 name=$2 mb=$3
 	docker exec "$C" sh -c "head -c $((mb * 1024 * 1024)) /dev/zero > /var/www/html/data/$user/files/$name \
@@ -524,7 +524,7 @@ mkfile() {
 	occ files:scan --path="/$user/files" >/dev/null
 }
 
-# Ausstehende Expire-Befehle von files_trashbin ausführen (CommandJob aus Trashbin::scheduleExpire)
+# Run pending expire commands of files_trashbin (CommandJob from Trashbin::scheduleExpire)
 run_expire_jobs() {
 	local id
 	for id in $(sql "SELECT id FROM oc_jobs WHERE class = ?" 'OC\Command\CommandJob'); do
@@ -532,13 +532,13 @@ run_expire_jobs() {
 	done
 }
 
-# Quota fast voll: files_trashbin räumt nach dem Verschieben (Expire) den Papierkorb, bis
-# 50 % des freien Quota-Platzes reichen – ins Papierkorb verschobene Dateien wären dann endgültig weg.
-# ivan: Quota 20 MB, 12 MB nicht fällig + 1 MB fällig + 4 MB fällig. Die kleine passt
-# (frei danach 4 MB → 2 MB Papierkorb), die große nicht (frei 8 MB → 4 MB < 1 + 4 MB).
+# Quota almost full: after the move, files_trashbin clears the trash bin (expire) until it
+# fits in 50 % of the free quota space – files moved to the trash bin would then be gone for good.
+# ivan: quota 20 MB, 12 MB not due + 1 MB due + 4 MB due. The small one fits
+# (free afterwards 4 MB → 2 MB trash bin), the big one does not (free 8 MB → 4 MB < 1 + 4 MB).
 s12() {
 	set_sim false
-	# Skeleton-Dateien (~63 MB) weg, sonst ist die Quota schon voll
+	# skeleton files (~63 MB) removed, otherwise the quota is already full
 	docker exec "$C" sh -c 'rm -rf /var/www/html/data/ivan/files/*'
 	occ files:scan --path=/ivan/files >/dev/null
 	occ user:setting ivan files quota "20 MB" >/dev/null
@@ -564,7 +564,7 @@ s12() {
 	rows=$(logrows s12-big.bin | paste -sd' ')
 	in_trash ivan s12-small.bin || { ok=0; note+='(kleine Datei nicht im Papierkorb) '; }
 	in_files ivan s12-big.bin || ok=0
-	[[ "$rows" == *[Qq]uota* ]] || ok=0 # Meldung in der Sprache der Instanz (tag_language; frisch: en)
+	[[ "$rows" == *[Qq]uota* ]] || ok=0 # message in the instance's language (tag_language; fresh: en)
 	if [[ $ok == 1 ]]; then
 		result PASS S12 "Quota fast voll, nach Expire: $note; Log groß: $rows"
 	else
@@ -572,8 +572,8 @@ s12() {
 	fi
 }
 
-# occ trashbin:size speichert eine Zahl, files_trashbin liest Text → jedes Verschieben in den
-# Papierkorb wirft. Danach darf keine Datei endgültig fehlen (früher: je Konto eine verloren).
+# occ trashbin:size stores a number, files_trashbin reads text → every move to the
+# trash bin throws. Afterwards no file may be permanently missing (previously: one lost per account).
 s13() {
 	set_sim false
 	occ trashbin:size 1GB >/dev/null
@@ -606,10 +606,10 @@ s13() {
 	fi
 }
 
-# Versionen wandern beim Löschen mit nach files_trashbin/versions und zählen für Expire mit.
-# oscar: Quota 20 MB, 13 MB nicht fällig + 1 MB fällig mit 3 × 1 MB Versionen. Nur die Datei
-# gerechnet: frei danach 7 MB → 3,5 MB > 1 MB, also gelöscht – danach misst Expire 4 MB im
-# Papierkorb und räumt die Datei endgültig ab. Mit Versionen: 3,5 MB < 4 MB → bleibt liegen.
+# Versions move along to files_trashbin/versions on deletion and count towards expire.
+# oscar: quota 20 MB, 13 MB not due + 1 MB due with 3 × 1 MB versions. Counting only the file:
+# free afterwards 7 MB → 3.5 MB > 1 MB, so deleted – then expire measures 4 MB in the
+# trash bin and clears the file for good. With versions: 3.5 MB < 4 MB → stays.
 s15() {
 	set_sim false
 	docker exec "$C" sh -c 'rm -rf /var/www/html/data/oscar/files/*'
@@ -617,7 +617,7 @@ s15() {
 	occ user:setting oscar files quota "20 MB" >/dev/null
 	mkfile oscar s15-keep.bin 13
 	local i vers rows state
-	# Jedes Überschreiben legt eine Version an; verschiedene mtimes, damit keine Version die andere ersetzt
+	# Every overwrite creates a version; different mtimes so that no version replaces another
 	for i in 1 2 3 4; do
 		docker exec "$C" sh -c "head -c 1048576 /dev/urandom | curl -sf -o /dev/null -u 'oscar:$PW' -T - \
 			-H 'X-OC-MTime: $((1700000000 + i * 100))' http://localhost/remote.php/dav/files/oscar/s15-doc.bin"
@@ -645,8 +645,8 @@ s15() {
 	fi
 }
 
-# Kopie erbt upload_time/creation_time des Originals (Cache::copyFromCache). Datei-IDs über der
-# Grenze (seen_max_fileid, gesetzt bei Installation/Update) zählen ab dem ersten Sehen.
+# A copy inherits upload_time/creation_time of the original (Cache::copyFromCache). File IDs above the
+# boundary (seen_max_fileid, set on installation/update) count from when they are first seen.
 s14() {
 	set_sim false
 	put erin s14-orig.txt
@@ -687,7 +687,7 @@ s10() {
 	local job
 	job=$(sql "SELECT id FROM oc_jobs WHERE class = ?" 'OCA\FolderRetention\BackgroundJob\RetentionJob')
 	[[ -n "$job" ]] || { result FAIL S10 "RetentionJob nicht in oc_jobs registriert"; return 0; }
-	# Neuen Zyklus erzwingen
+	# force a new cycle
 	occ config:app:delete folder_retention last_cycle_completed >/dev/null 2>&1 || true
 	occ config:app:delete folder_retention job_cursor >/dev/null 2>&1 || true
 
@@ -719,8 +719,8 @@ s10() {
 	trashed=$(docker exec "$C" sh -c "ls /var/www/html/data/heidi/files_trashbin/files/ 2>/dev/null | grep -c '^s10-' || true")
 	remain=$(docker exec "$C" sh -c "ls /var/www/html/data/heidi/files/s10/ | grep -c '^s10-' || true")
 	lost=$((n - trashed - remain))
-	# Sperrmeldung des occ-Befehls – nur Zeilen außerhalb der Ergebnistabelle, sonst zählte
-	# „skipped_locked (Datei ist gesperrt …)“ einer einzelnen Datei mit
+	# block message of the occ command – only lines outside the result table, otherwise
+	# "skipped_locked (Datei ist gesperrt …)" of a single file would count too
 	grep -v '^[|+]' "$WORK/s10-occ.txt" \
 		| grep -Eiq 'gesperrt|läuft bereits|laeuft bereits|bereits .*(lauf|läuft)|anderer .*lauf|sperre|locked|already running' \
 		&& lockmsg=1
@@ -736,10 +736,10 @@ s10() {
 	fi
 }
 
-# Gleicher Dateiname in mehreren Ordnern, ein Lauf: files_trashbin nennt den Eintrag
-# „<name>.d<time()>“ und überschreibt ein vorhandenes Ziel derselben Sekunde endgültig. Alle drei
-# müssen im Papierkorb liegen, mit ihrem eigenen Inhalt. Mit groupfolders zusätzlich zwei
-# gleichnamige Dateien in einem Team-Ordner (dessen Papierkorb benennt genauso).
+# Same file name in several folders, one run: files_trashbin names the entry
+# "<name>.d<time()>" and permanently overwrites an existing target of the same second. All three
+# must be in the trash bin, with their own content. With groupfolders also two
+# files of the same name in a team folder (whose trash bin names them the same way).
 s16() {
 	set_sim false
 	local d id ids=() gids=() gid=''
@@ -788,16 +788,16 @@ s16() {
 	fi
 }
 
-# Grenze Bestand/neu im Übergangsfenster nach dem Update: Kopie entsteht nach dem Update, aber
-# bevor ein vollständiger Zyklus unter 0.8 gelaufen ist (fb4395c: seen_since fehlte → Kopie
-# sofort fällig; im zweiten Lauf als Bestand). Die Grenze ist die Datei-ID beim Update.
+# Existing/new boundary in the transition window after the update: the copy is made after the update, but
+# before a complete cycle has run under 0.8 (fb4395c: seen_since was missing → copy
+# due immediately; in the second run treated as existing). The boundary is the file ID at the update.
 s18() {
 	set_sim false
 	local mark max
 	mark=$(occ config:app:get folder_retention seen_max_fileid 2>/dev/null || true)
 	put victor s18-orig.txt
 	age s18-orig.txt 700
-	# „Update jetzt“ nachstellen: Grenze = höchste Datei-ID, kein Zyklus seither abgeschlossen
+	# simulate "update now": boundary = highest file ID, no cycle completed since
 	max=$(sql "SELECT MAX(fileid) FROM oc_filecache")
 	occ config:app:set folder_retention seen_max_fileid --value="$max" --type=integer >/dev/null
 	occ config:app:delete folder_retention seen_since >/dev/null 2>&1 || true
@@ -821,8 +821,8 @@ s18() {
 	fi
 }
 
-# AJAX-Cron (Nextcloud-Standard): anonymer Aufruf von cron.php mit „X-NC-Skip-Trashbin: true“
-# darf nichts endgültig löschen und keinen Bereich sperren; die Verwaltung meldet den Modus.
+# AJAX cron (Nextcloud default): an anonymous call of cron.php with "X-NC-Skip-Trashbin: true"
+# must not delete anything permanently and must not block any area; the admin page reports the mode.
 s17() {
 	set_sim false
 	put trent s17-web.txt
@@ -834,7 +834,7 @@ s17() {
 	occ config:app:delete folder_retention job_cursor >/dev/null 2>&1 || true
 	before=$(blocks)
 	occ background:ajax >/dev/null
-	# Nur der RetentionJob ist dran: alle anderen gelten als eben geprüft
+	# Only the RetentionJob is due: all others count as just checked
 	sql "UPDATE oc_jobs SET last_checked = ?, reserved_at = 0 WHERE id <> ?" "$(now)" "$job"
 	sql "UPDATE oc_jobs SET last_run = 0, last_checked = 0, reserved_at = 0 WHERE id = ?" "$job"
 	for i in 1 2 3; do
@@ -855,8 +855,8 @@ s17() {
 	fi
 }
 
-# „Sperre aufheben“ hebt nur die angezeigte Sperre auf – eine inzwischen dazugekommene (oder
-# erneuerte) bleibt. Über die Verwaltungs-API und per occ.
+# "Lift block" lifts only the displayed block – one added (or renewed) in the meantime
+# stays. Via the admin API and via occ.
 s19() {
 	local state1 state2 state3 code1 code2 out3
 	sql "DELETE FROM oc_folder_retention_block WHERE block_key IN ('it:a', 'it:b')"
@@ -866,10 +866,10 @@ s19() {
 			-H 'Content-Type: application/json' -X PUT -d "$1" http://localhost/index.php/apps/folder_retention/api/settings
 	}
 	keys() { sql "SELECT '\"' || block_key || '\"' FROM oc_folder_retention_block WHERE block_key IN ('it:a', 'it:b') ORDER BY block_key" | paste -sd' ' || true; }
-	# Admin hat nur A gesehen; B kam später dazu
+	# admin has only seen A; B was added later
 	code1=$(api_put '{"unblock":[{"key":"it:a","at":100}]}')
 	state1=$(keys)
-	# veraltete Anzeige von B (anderer Zeitpunkt) – B wurde inzwischen erneut gesperrt
+	# stale display of B (different timestamp) – B has been blocked again in the meantime
 	code2=$(api_put '{"unblock":[{"key":"it:b","at":150}]}')
 	state2=$(keys)
 	out3=$(occ folder_retention:run --unblock=it:b 2>&1 | head -n 3 | paste -sd' ' || true)
@@ -883,10 +883,10 @@ s19() {
 	fi
 }
 
-# Sperre aus einem anderen Prozess gilt sofort: Prozess P (wie cron.php, der vor dem Job andere
-# Jobs abarbeitet) hat die Sperrliste schon gelesen, dann setzt Q (occ-Lauf mit endgültiger
-# Löschung) eine Sperre. P muss sie sehen und darf mit eigener Sperre keine fremde verlieren.
-# Dazu: Sperren aus der App-Config (Vorstufe 0.8.0) wandern in die Tabelle.
+# A block from another process applies immediately: process P (like cron.php, which works through other
+# jobs before this job) has already read the block list, then Q (occ run with permanent
+# deletion) sets a block. P must see it and must not lose anyone else's block with its own.
+# Also: blocks from the app config (pre-0.8.0 stage) move into the table.
 s20() {
 	sql "DELETE FROM oc_folder_retention_block WHERE block_key LIKE 'it:s20%'"
 	docker exec "$C" rm -f /tmp/s20-ready /tmp/s20-go
@@ -903,7 +903,7 @@ s20() {
 	local p rows legacy mig cfg
 	p=$(grep -o 'before=[01] after=[01]' "$WORK/s20-p.txt" || echo "P: $(tail -n2 "$WORK/s20-p.txt" | paste -sd' ')")
 	rows=$(blocks 'it:s20%')
-	# Altbestand in der App-Config: beim nächsten Zugriff übernommen und dort entfernt
+	# legacy entry in the app config: taken over on the next access and removed there
 	occ config:app:set folder_retention blocked_roots --value='{"it:s20legacy":{"label":"Alt","reason":"vor 0.8","at":50}}' >/dev/null
 	occ folder_retention:run --unblock=it:s20-gibt-es-nicht > "$WORK/s20-legacy.txt" 2>&1 || true
 	legacy=$(blocks 'it:s20legacy')
@@ -919,9 +919,9 @@ s20() {
 	fi
 }
 
-# Lange Namen: files_trashbin kürzt „<name>.d<Zeit>“ über 250 Byte in der Mitte. Zwei Dateien, die
-# sich nur im herausgeschnittenen Stück unterscheiden, bekämen in derselben Sekunde denselben
-# Papierkorb-Namen – die erste wäre endgültig weg. Beide müssen mit eigenem Inhalt im Papierkorb liegen.
+# Long names: files_trashbin truncates "<name>.d<time>" over 250 bytes in the middle. Two files that
+# differ only in the cut-out part would get the same trash bin name within the same second
+# – the first would be gone for good. Both must be in the trash bin with their own content.
 s21() {
 	set_sim false
 	local a b ida idb
@@ -950,10 +950,10 @@ s21() {
 	fi
 }
 
-# Zwei Läufe direkt hintereinander (z. B. „occ …run --rule=3; occ …run --rule=4“, oder der Job
-# übernimmt die eben freigegebene Sperre): Lauf 2 verschiebt eine gleichnamige Datei womöglich noch
-# in derselben Sekunde wie Lauf 1 seine letzte. files_trashbin überschriebe dann den Eintrag aus
-# Lauf 1 endgültig – der Speicher von Lauf 2 kennt ihn nicht, nur der Filecache.
+# Two runs back to back (e.g. "occ …run --rule=3; occ …run --rule=4", or the job
+# takes over the block just released): run 2 may move a file of the same name still
+# within the same second as run 1 moved its last one. files_trashbin would then permanently overwrite the entry from
+# run 1 – run 2's memory does not know it, only the filecache does.
 s22() {
 	set_sim false
 	local d id ids=() out
@@ -970,7 +970,7 @@ s22() {
 	contents=$(docker exec "$C" sh -c 'cat /var/www/html/data/rupert/files_trashbin/files/Protokoll.pdf.d* 2>/dev/null' | sort | paste -sd',')
 	want='Inhalt s22A/Protokoll.pdf,Inhalt s22B/Protokoll.pdf'
 	remain=$(docker exec "$C" sh -c 'ls /var/www/html/data/rupert/files/s22A /var/www/html/data/rupert/files/s22B 2>/dev/null | grep -c Protokoll || true')
-	# Hat der Test die Lage wirklich hergestellt (Lauf 2 beginnt in der Sekunde, in der Lauf 1 endete)?
+	# Did the test really create the situation (run 2 starts in the second in which run 1 ended)?
 	same=nein
 	[[ "$out" =~ aEnd=([0-9]+)\ bStart=([0-9]+) && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] && same=ja
 	[[ "$out" == 'a=deleted b=deleted '* && "$trashed" == 2 && "$contents" == "$want" && "$remain" == 0 ]] || ok=0
@@ -982,7 +982,7 @@ s22() {
 	fi
 }
 
-# Wiederherstellung lange nach der Löschung: Frist zählt ab dem ersten Sehen danach
+# Restore long after the deletion: the retention period counts from the first time it is seen afterwards
 s28() {
 	set_sim false
 	put dave s28-late.txt
@@ -994,7 +994,7 @@ s28() {
 		result FAIL S28 "Vorbedingung: erster Lauf hat nicht in den Papierkorb verschoben (Log: $(logrows s28-late.txt | paste -sd' '))"
 		return 0
 	fi
-	# Löschung vor 10 Tagen (Regel 1 Tag), heute zurückgeholt
+	# deletion 10 days ago (rule 1 day), restored today
 	sql "UPDATE oc_folder_retention_log SET deleted_at = ? WHERE file_id = ?" "$(ago 10)" "$id"
 	occ trashbin:restore dave > "$WORK/s28-restore.txt" 2>&1
 	if ! in_files dave s28-late.txt; then
@@ -1006,7 +1006,7 @@ s28() {
 	retention_run s28-b
 	seen1=$(sql "SELECT first_seen FROM oc_folder_retention_seen WHERE file_id = ?" "$id")
 	in_files dave s28-late.txt && stays=ja
-	# zwei Tage nach der Wiederherstellung wieder fällig: Frist ab Wiederherstellung, nicht „nie“
+	# due again two days after the restore: retention period from the restore, not "never"
 	seen "$id" "$(ago 2)"
 	retention_run s28-c
 	in_trash dave s28-late.txt && ! in_files dave s28-late.txt && again=ja
@@ -1018,7 +1018,7 @@ s28() {
 	fi
 }
 
-# Ausnahme im Papierkorb, danach zweiter Lauf im selben Prozess (background-job:worker)
+# Exception in the trash bin, then a second run in the same process (background-job:worker)
 s29() {
 	set_sim false
 	put erin s29-worker.txt
@@ -1035,7 +1035,7 @@ s29() {
 	fi
 }
 
-# Simulation protokolliert neu, wenn sich die Bewertung ändert (Alteintrag von 0.7.x, Frist)
+# Simulation mode logs again when the evaluation changes (legacy entry from 0.7.x, retention period)
 s30() {
 	set_sim true
 	put alice s30-sim.txt
@@ -1043,13 +1043,13 @@ s30() {
 	retention_run s30-a
 	local n1 n2 n3 n4 n5 rows
 	n1=$(logrows s30-sim.txt | grep -c '^simulation:would_delete' || true)
-	# Eintrag so, wie ihn 0.7.x schrieb: Bezug mtime, anderes Datum
+	# entry as 0.7.x wrote it: reference mtime, different date
 	sql "UPDATE oc_folder_retention_log SET reference_source = 'mtime', reference_date = ? WHERE path LIKE ? AND mode = 'simulation'" "$(ago 400)" "%s30-sim.txt"
 	retention_run s30-b
 	n2=$(logrows s30-sim.txt | grep -c '^simulation:would_delete' || true)
 	retention_run s30-c
 	n3=$(logrows s30-sim.txt | grep -c '^simulation:would_delete' || true)
-	# Friständerung an derselben Regel (gleiche Regel-ID, neue Frist)
+	# retention period change on the same rule (same rule ID, new retention period)
 	set_default_rules day 2
 	retention_run s30-d
 	n4=$(logrows s30-sim.txt | grep -c '^simulation:would_delete' || true)
@@ -1067,15 +1067,15 @@ s30() {
 	fi
 }
 
-# Zuletzt: verändert die Papierkorb-Freigabe instanzweit
+# Last: changes the trash bin availability instance-wide
 s6() {
 	set_sim false
 	occ group:add trash-users >/dev/null
 	occ group:adduser trash-users alice >/dev/null
 	put grace s6-notrash.txt
 	age s6-notrash.txt 10
-	# occ app:enable --groups verweigert das für Filesystem-Apps – Admin-Oberfläche/alte
-	# Konfigurationen können den Wert trotzdem tragen, daher direkt setzen
+	# occ app:enable --groups refuses this for filesystem apps – the admin UI/old
+	# configurations can still carry the value, so set it directly
 	occ config:app:set files_trashbin enabled --value='["trash-users"]' >/dev/null
 	retention_run s6
 	occ config:app:set files_trashbin enabled --value=yes >/dev/null
@@ -1092,24 +1092,24 @@ s6() {
 	fi
 }
 
-# ---------------------------------------------------------------- eigene Instanzen (S23, S24)
+# ---------------------------------------------------------------- separate instances (S23, S24)
 
-# Vor dem ersten Start: kein App-Store (auch nicht bei occ upgrade), keine Skeleton-Dateien
+# Before the first start: no App Store (not even on occ upgrade), no skeleton files
 prep_side() {
-	printf '%s\n' '<?php' '// Harness: eigene Instanz ohne App-Store und ohne Skeleton-Dateien' \
+	printf '%s\n' '<?php' '// Harness: own instance without app store and without skeleton files' \
 		"\$CONFIG = ['appstoreenabled' => false, 'has_internet_connection' => false, 'skeletondirectory' => ''];" \
 		> "$WORK/side.config.php"
 	docker cp "$WORK/side.config.php" "$C:/usr/src/nextcloud/config/fret-side.config.php"
 }
 
-# Primärspeicher = Objektspeicher (FretDirObjectStore, Objekte als Dateien – ohne S3)
+# primary storage = object store (FretDirObjectStore, objects as files – without S3)
 prep_objectstore() {
 	prep_side
 	docker cp "$HERE/objectstore/FretDirObjectStore.php" "$C:/usr/src/nextcloud/lib/private/Files/ObjectStore/FretDirObjectStore.php"
 	docker cp "$HERE/objectstore/objectstore.config.php" "$C:/usr/src/nextcloud/config/objectstore.config.php"
 }
 
-# Eigene Wegwerf-Instanz für ein Szenario; der Aufrufer setzt vorher „local C=…“ (Helfer lesen $C)
+# Separate throwaway instance for a scenario; the caller sets "local C=…" beforehand (helpers read $C)
 side_nc() {
 	start_nc "${1:-prep_side}"
 	docker exec -i "$C" sh -c 'cat > /tmp/fret-sql.php' < "$HERE/sql.php"
@@ -1122,13 +1122,13 @@ side_user() {
 	touch_fs "$1"
 }
 
-# <bytes> Nullbytes per WebDAV hochladen (Objektspeicher: nicht über die Platte möglich)
+# Upload <bytes> zero bytes via WebDAV (object store: not possible via the disk)
 put_bytes() {
 	docker exec "$C" sh -c "head -c $3 /dev/zero | curl -sf -o /dev/null -u '$1:$PW' -T - \
 		http://localhost/remote.php/dav/files/$1/$2"
 }
 
-# Zustand einer Datei laut Filecache (Objektspeicher hat keine Dateien unter data/<konto>/)
+# State of a file according to the filecache (object store has no files under data/<account>/)
 obj_state() {
 	local storage
 	storage=$(sql "SELECT numeric_id FROM oc_storages WHERE id = ?" "object::user:$1")
@@ -1141,10 +1141,10 @@ obj_state() {
 	fi
 }
 
-# Objektspeicher als Primärspeicher: Nextcloud rechnet für die Papierkorb-Räumung die Größe der
-# Konto-Wurzel – dort samt Papierkorb und Versionen (normaler Cache statt HomeCache). olga:
-# Quota 10 MB, 3 MB nicht fällig, 1,4 MB schon im Papierkorb, 2 MB fällig. Nur files/ gerechnet
-# passt die Datei (7 MB frei → 3,5 MB > 3,4 MB); mit der Wurzel (6,7 MB) nicht – Expire räumte sie.
+# Object store as primary storage: for clearing the trash bin Nextcloud computes the size of the
+# account root – there including trash bin and versions (normal cache instead of HomeCache). olga:
+# quota 10 MB, 3 MB not due, 1.4 MB already in the trash bin, 2 MB due. Counting only files/
+# the file fits (7 MB free → 3.5 MB > 3.4 MB); with the root (6.7 MB) it does not – expire would clear it.
 s23() {
 	local C="$C-os"
 	side_nc prep_objectstore
@@ -1185,16 +1185,16 @@ s23() {
 	fi
 }
 
-# Update vom frühen 0.8.0-Stand (OLD_REV, Grenze „seen_since“ als Zeitpunkt) auf den Arbeitsbaum:
-# Eine Kopie aus der 0.8.0-Zeit (erbt die Upload-Zeit des 400 Tage alten Originals, zuerst
-# gesehen nach seen_since) war dort geschützt und muss es nach dem Update bleiben.
+# Update from the early 0.8.0 state (OLD_REV, boundary "seen_since" as a timestamp) to the working tree:
+# a copy from the 0.8.0 era (inherits the upload time of the 400-day-old original, first
+# seen after seen_since) was protected there and must stay protected after the update.
 s24() {
 	local C="$C-up" old="$WORK/app-$OLD_REV"
 	mkdir -p "$old"
 	git -C "$REPO" archive "$OLD_REV" | tar -x -C "$old" \
 		|| { result FAIL S24 "Vorbedingung: git archive $OLD_REV fehlgeschlagen"; return 0; }
-	# Ausgangsstand nur in dieser Kopie auf die max-version von APP_SRC heben – sonst lässt sich
-	# OLD_REV (max-version 34) z. B. auf NC 35 gar nicht erst installieren
+	# raise the starting state to APP_SRC's max-version only in this copy – otherwise
+	# OLD_REV (max-version 34) cannot even be installed on e.g. NC 35
 	local maxv
 	maxv=$(sed -n 's/.*<nextcloud [^>]*max-version="\([0-9]*\)".*/\1/p' "$APP_SRC/appinfo/info.xml")
 	[[ -z "$maxv" ]] || sed -i "s/\(<nextcloud [^>]*max-version=\"\)[0-9]*\"/\1$maxv\"/" "$old/appinfo/info.xml"
@@ -1205,7 +1205,7 @@ s24() {
 	set_sim true
 	put uwe s24-orig.txt
 	age s24-orig.txt 400
-	retention_run s24-a # Simulation: Zyklus fertig → seen_since
+	retention_run s24-a # simulation mode: cycle complete → seen_since
 	local since
 	since=$(occ config:app:get folder_retention seen_since 2>/dev/null || true)
 	[[ -n "$since" ]] || { result FAIL S24 "Vorbedingung: $OLD_REV hat seen_since nicht gesetzt"; return 0; }
@@ -1214,7 +1214,7 @@ s24() {
 		-H "Destination: http://localhost/remote.php/dav/files/uwe/s24-kopie.txt" \
 		http://localhost/remote.php/dav/files/uwe/s24-orig.txt \
 		|| { result FAIL S24 "Vorbedingung: WebDAV-COPY fehlgeschlagen"; return 0; }
-	retention_run s24-b # vermerkt „zuerst gesehen“ der Kopie
+	retention_run s24-b # records "first seen" for the copy
 	local id seen pre
 	id=$(fid s24-kopie.txt)
 	seen=$(sql "SELECT first_seen FROM oc_folder_retention_seen WHERE file_id = ?" "$id")
@@ -1242,10 +1242,10 @@ s24() {
 	fi
 }
 
-# Team-Ordner mit carol und bob: Nextcloud nennt das Konto, über das gelöscht wird, als Löschenden
-# (Papierkorb „deleted_by“, Aktivität). Es muss stabil das erste Mitglied in sortierter Reihenfolge
-# sein (bob) – auch wenn im selben Lauf vorher carols eigene Datei gelöscht wurde (Kontext carol) –,
-# und das Protokoll der App muss es nennen.
+# Team folder with carol and bob: Nextcloud names the account through which the deletion happens as the deleter
+# (trash bin "deleted_by", activity). It must consistently be the first member in sorted order
+# (bob) – even if carol's own file was deleted earlier in the same run (context carol) –
+# and the app's log must name it.
 s25() {
 	if [[ "$GF_OK" != 1 ]]; then
 		result SKIP S25 "groupfolders nicht verfügbar: $GF_WHY"
@@ -1264,7 +1264,7 @@ s25() {
 	by=$(sql "SELECT deleted_by FROM oc_group_folders_trash WHERE name = 's25-team.txt'" 2>/dev/null || echo 'Spalte fehlt')
 	gf_trashed s25-team.txt || ok=0
 	in_trash carol s25-carol.txt || ok=0
-	# Meldung in der Sprache der Instanz (tag_language; frische Installation: en)
+	# message in the instance's language (tag_language; fresh installation: en)
 	[[ "$team" == 'real:deleted ('*'über Konto bob '*'gelöscht hat folder_retention'* || "$team" == 'real:deleted ('*'via account bob '*'folder_retention deleted it'* ]] || ok=0
 	[[ "$own" == 'real:deleted ('*'über Konto carol '* || "$own" == 'real:deleted ('*'via account carol '* ]] || ok=0
 	[[ "$by" == bob || "$by" == 'Spalte fehlt' ]] || ok=0
@@ -1276,9 +1276,9 @@ s25() {
 	fi
 }
 
-# occ app:remove (ohne --keep-data) bei ausgeschalteter Simulation, dann neu installieren:
-# Nextcloud lässt App-Config und Regeln stehen (INSTALL.md §9) – der Uninstall-Schritt muss die
-# Simulation einschalten, sonst löschte die Neuinstallation sofort nach den alten Fristen.
+# occ app:remove (without --keep-data) with simulation mode off, then reinstall:
+# Nextcloud leaves the app config and rules in place (INSTALL.md §9) – the uninstall step must
+# turn simulation mode on, otherwise the reinstall would delete right away according to the old retention periods.
 s26() {
 	local C="$C-rm"
 	side_nc
@@ -1313,8 +1313,8 @@ s26() {
 	fi
 }
 
-# „Vollständig aufräumen“ genau mit dem SQL-Block aus INSTALL.md §9, danach neu installieren:
-# Tabellen wieder da, Simulation an, beide Standardregeln „nie“, occ-Lauf ohne SQL-Fehler.
+# "Clean up completely" with exactly the SQL block from INSTALL.md §9, then reinstall:
+# tables back, simulation mode on, both default rules "never", occ run without SQL errors.
 s27() {
 	local C="$C-rs" doc="$APP_SRC/INSTALL.md"
 	[[ -f "$doc" ]] || doc="$REPO/INSTALL.md"
@@ -1350,10 +1350,10 @@ s27() {
 	fi
 }
 
-# Team-Ordner mit groupfolders-Verschlüsselung (Master-Key): groupfolders KOPIERT die Datei in
-# den Papierkorb – dort steht sie unter neuer Datei-ID, oc_group_folders_trash nennt die alte.
-# Die App muss das als „deleted“ verbuchen, nicht als „deleted_final“ mit Sperre. Im selben
-# Lauf eine persönliche Datei (gleicher Speicher → Umbenennen, ID bleibt).
+# Team folder with groupfolders encryption (master key): groupfolders COPIES the file into
+# the trash bin – there it has a new file ID, oc_group_folders_trash names the old one.
+# The app must record this as "deleted", not as "deleted_final" with a block. In the same
+# run a personal file (same storage → rename, ID stays).
 s31() {
 	if [[ "$GF_OK" != 1 ]]; then
 		result SKIP S31 "groupfolders nicht verfügbar: $GF_WHY"
@@ -1399,9 +1399,9 @@ s31() {
 	fi
 }
 
-# S32 Protokoll-Übersicht: Tage, Ordner und Ordnerfilter (direkter Elternordner, LIKE-Zeichen im
-# Namen) gegen die echte Datenbank. notLike() hängt auf SQLite kein ESCAPE an – der Filter darf
-# sich darauf nicht verlassen.
+# S32 log overview: days, folders and folder filter (direct parent folder, LIKE characters in the
+# name) against the real database. notLike() does not append ESCAPE on SQLite – the filter must
+# not rely on it.
 s32() {
 	local at path n=0
 	at=$(( $(now) - 60 ))
@@ -1418,7 +1418,7 @@ s32() {
 	p3=$(paths 'S32%201000x%5Bx%5D')
 	root=$(api 'log?folder=' | grep -o '"path":"s32-loose.txt"' || true)
 	folders=$(api "log/folders?search=S32&from=$((at - 3600))&to=$((at + 3600))" | grep -o '"folder":"[^"]*","total":[0-9]*' | tr '\n' ' ')
-	# ohne Zeitraum würde die Zählung das ganze Protokoll lesen – abgelehnt
+	# without a time range the count would read the whole log – rejected
 	unbounded=$(docker exec "$C" curl -s -o /dev/null -w '%{http_code}' -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/log/folders?search=S32")
 	days=$(api 'log/days?search=s32' | grep -o '"total":[0-9]*,"counts"' | head -1)
 	[[ "$p1" == "S32 100%_[x]/a.txt|" ]] || ok=0
@@ -1437,7 +1437,7 @@ s32() {
 	fi
 }
 
-# ---------------------------------------------------------------- Ablauf
+# ---------------------------------------------------------------- sequence
 
 setup
 scenario S5 s5

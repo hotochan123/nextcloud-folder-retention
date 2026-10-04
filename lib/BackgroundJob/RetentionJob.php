@@ -10,11 +10,11 @@ use OCP\BackgroundJob\IJob;
 use OCP\BackgroundJob\TimedJob;
 
 /**
- * Täglicher Aufbewahrungslauf.
+ * Daily retention run.
  *
- * Der Job wird alle 15 Minuten angestoßen, arbeitet aber nur, solange ein Zyklus offen ist:
- * Ein Zyklus beginnt frühestens 23 h nach dem Ende des letzten und wird in Häppchen
- * (Zeitbudget, Cursor) abgearbeitet, damit große Instanzen cron.php nicht blockieren.
+ * The job is triggered every 15 minutes but only does work while a cycle is open:
+ * a cycle starts no earlier than 23 h after the previous one ended and is processed in small chunks
+ * (time budget, cursor) so that large instances don't block cron.php.
  */
 class RetentionJob extends TimedJob {
 	public function __construct(

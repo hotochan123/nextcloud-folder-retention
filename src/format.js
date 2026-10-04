@@ -1,7 +1,7 @@
-/** Texte für Plaketten, Klartext-Kasten und Quellen-Spalte. */
+/** Texts for badges, the plain-language box and the source column. */
 import { locale, n, t } from './l10n.js'
 
-/** „1 Monat“, „2 Wochen“, „Nie löschen“ */
+/** "1 month", "2 weeks", "Never delete" */
 export function periodLabel(rule) {
 	if (!rule || rule.periodUnit === 'never') {
 		return t('folder_retention', 'Never delete')
@@ -24,8 +24,8 @@ export function isNever(rule) {
 }
 
 /**
- * Frist-Satz je Einheit und Bezug als eigener Pluraltext – im Deutschen steht die Frist
- * im Dativ („2 Monaten“, aber „2 Wochen“), das lässt sich nicht aus periodLabel() ableiten.
+ * Retention period sentence per unit and reference as its own plural text – in German the period
+ * takes the dative ("2 Monaten", but "2 Wochen"), which cannot be derived from periodLabel().
  */
 function deletionSentence(rule) {
 	const v = Number(rule.periodValue)
@@ -51,9 +51,9 @@ function deletionSentence(rule) {
 }
 
 /**
- * Klartext der effektiven Wirkung, z. B. „Dateien werden 1 Monat nach Ablage in Nextcloud gelöscht.“
+ * Plain-language text of the effective outcome, e.g. "Files are deleted 1 month after upload to Nextcloud."
  *
- * @param {object} eff Ergebnis von store.effective()
+ * @param {object} eff result of store.effective()
  */
 export function effectText(eff) {
 	const rule = eff.rule
@@ -68,9 +68,9 @@ export function effectText(eff) {
 }
 
 /**
- * Text der Quellen-Spalte.
+ * Text of the source column.
  *
- * @param {object} eff Ergebnis von store.effective()
+ * @param {object} eff result of store.effective()
  * @param {boolean} hasChildren
  * @param {(id: number) => string} nameOf
  */
@@ -89,7 +89,7 @@ export function sourceText(eff, hasChildren, nameOf) {
 	return t('folder_retention', 'inherited from {name}', { name: nameOf(eff.sourceId) })
 }
 
-/** Woher das Bezugsdatum stammt (Spalte im Protokoll und in der Vorschau) */
+/** Where the reference date comes from (column in the log and in the preview) */
 export function sourceLabel(src) {
 	switch (src) {
 	case 'created': return t('folder_retention', 'creation according to client')
@@ -123,8 +123,8 @@ export function formatSize(bytes) {
 }
 
 /**
- * Anfrage zum Aufheben von Sperren: nur die angezeigten Bereiche, je mit dem angezeigten
- * Zeitpunkt – eine inzwischen neu gesetzte Sperre (anderer Zeitpunkt) bleibt bestehen.
+ * Request to lift blocks: only the displayed areas, each with the displayed
+ * timestamp – a block set again in the meantime (different timestamp) stays in place.
  *
  * @param {Array<{key: string, at: number}>} entries
  */
@@ -132,13 +132,13 @@ export function unblockPayload(entries) {
 	return { unblock: entries.map(b => ({ key: b.key, at: b.at })) }
 }
 
-/** Statusgruppe eines Protokolleintrags, wie LogSummary::category() im Backend: Unbekanntes zählt als Fehler */
+/** Status group of a log entry, like LogSummary::category() in the backend: anything unknown counts as an error */
 export function categoryOf(status) {
 	if (status === 'deleted' || status === 'would_delete') return status
 	return status.startsWith('skipped') ? 'skipped' : 'error'
 }
 
-/** Farbton der Plaketten je Statusgruppe */
+/** Badge tone per status group */
 export const CATEGORY_TONE = { error: 'error', deleted: 'delete', would_delete: 'sim', skipped: 'skip' }
 
 export function baseName(path) {
@@ -146,14 +146,14 @@ export function baseName(path) {
 }
 
 /**
- * Bezugsquelle nur nennen, wenn sie vom Normalfall abweicht: Upload-Zeit (Frist ab Ablage) und
- * Änderungszeit (Frist ab Änderung) ergeben sich aus der Regel.
+ * Only mention the reference source when it deviates from the normal case: upload time (period from upload) and
+ * modification time (period from modification) follow from the rule.
  */
 export function unusualSource(src) {
 	return src !== 'upload' && src !== 'mtime'
 }
 
-/** Tag „2026-10-04“ (Zeitzone der Instanz) ohne Umrechnung anzeigen */
+/** Display the day "2026-10-04" (instance time zone) without conversion */
 export function formatDay(date) {
 	const [y, m, d] = date.split('-').map(Number)
 	return new Date(y, m - 1, d).toLocaleDateString(locale(), { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
@@ -164,7 +164,7 @@ export function formatTime(ts) {
 }
 
 /**
- * Zahlen je Statusgruppe als Plaketten, nur die vorhandenen.
+ * Counts per status group as badges, only those present.
  *
  * @param {{deleted: number, would_delete: number, skipped: number, error: number}} counts
  * @return {Array<{key: string, label: string, tone: string}>}

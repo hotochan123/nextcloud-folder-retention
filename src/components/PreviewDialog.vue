@@ -128,7 +128,7 @@ const error = ref(null)
 const result = ref(null)
 
 const summary = computed(() => {
-	// die Zahl steht fett davor, der Satz richtet sich nur im Numerus nach ihr
+	// the number is shown in bold before it; the sentence only agrees with it in grammatical number
 	const total = result.value?.total ?? 0
 	if (days.value === 0) {
 		return n('folder_retention', 'file is already due.', 'files are already due.', total)
@@ -140,8 +140,8 @@ const summary = computed(() => {
 })
 
 /**
- * Hinweis, wenn Dateien unter einer anderen Regel fallen als der dieses Ordners – typisch bei
- * „Nie löschen · nur diese Ebene“: Unterordner erben dann von weiter oben.
+ * Notice when files fall under a different rule than this folder's – typical for
+ * "Never delete · this level only": subfolders then inherit from further up.
  */
 const otherRules = computed(() => {
 	if (!result.value?.items.length || props.dirty || isDefaultKey(props.nodeKey)) {

@@ -12,9 +12,9 @@ use OCP\IConfig;
 use OCP\IDBConnection;
 
 /**
- * Zentrale Stelle für App-Einstellungen (IAppConfig, App-ID folder_retention).
+ * Central place for app settings (IAppConfig, app ID folder_retention).
  *
- * Per occ änderbar, z. B.:
+ * Changeable via occ, e.g.:
  *   occ config:app:set folder_retention simulation_mode --value=0 --type=boolean
  */
 class Settings {
@@ -25,7 +25,7 @@ class Settings {
 	private const WORKSPACE_ACCOUNTS = 'workspace_accounts';
 	private const BLOCKED_ROOTS = 'blocked_roots';
 	private const SEEN_MAX_FILEID = 'seen_max_fileid';
-	/** Vorgänger der Grenze im frühen 0.8.0-Stand (fb4395c): Zeitpunkt statt Datei-ID */
+	/** Predecessor of the boundary in the early 0.8.0 state (fb4395c): timestamp instead of file ID */
 	private const LEGACY_SEEN_SINCE = 'seen_since';
 	private const LOCK_TABLE = 'folder_retention_lock';
 	private const BLOCK_TABLE = 'folder_retention_block';
@@ -38,15 +38,15 @@ class Settings {
 	) {
 	}
 
-	/** Simulationsmodus – Standard AN, solange nicht ausdrücklich ausgeschaltet */
+	/** Simulation mode – ON by default unless explicitly switched off */
 	public function isSimulation(): bool {
 		return $this->appConfig->getValueBool(Application::APP_ID, Application::CONFIG_SIMULATION, true);
 	}
 
 	/**
-	 * Simulationsmodus, frisch aus der Datenbank (oc_appconfig) statt aus dem Prozess-Cache von
-	 * IAppConfig: Ein laufender occ-Lauf bzw. Job soll die Notbremse „Simulation an“ (Oberfläche
-	 * oder occ config:app:set) noch vor der nächsten Löschung sehen. Im Zweifel AN.
+	 * Simulation mode, read fresh from the database (oc_appconfig) instead of IAppConfig's
+	 * per-process cache: a running occ run or job must see the emergency brake "simulation on"
+	 * (UI or occ config:app:set) before its next deletion. When in doubt: ON.
 	 */
 	public function isSimulationFresh(): bool {
 		try {
@@ -55,7 +55,7 @@ class Settings {
 			return true;
 		}
 		if ($raw === null) {
-			return true; // nie gesetzt: Standard AN
+			return true; // never set: default ON
 		}
 		return !in_array(strtolower(trim($raw)), ['0', 'false', 'no', 'off'], true);
 	}
@@ -64,7 +64,7 @@ class Settings {
 		$this->appConfig->setValueBool(Application::APP_ID, Application::CONFIG_SIMULATION, $on);
 	}
 
-	/** Bei Installation: Simulationsmodus explizit AN – aber nie eine bewusste Abschaltung überschreiben */
+	/** On installation: simulation mode explicitly ON – but never overwrite a deliberate switch-off */
 	public function initSimulation(): void {
 		if (!$this->appConfig->hasKey(Application::APP_ID, Application::CONFIG_SIMULATION)) {
 			$this->setSimulation(true);
@@ -72,8 +72,8 @@ class Settings {
 	}
 
 	/**
-	 * Alter Schalter „Standardregel auch für persönliche Dateien“ (bis 0.5). Wird nur noch einmalig
-	 * ausgewertet, wenn die Standardregel für persönliche Ordner angelegt wird.
+	 * Old switch "default rule also for personal files" (up to 0.5). Now only evaluated once,
+	 * when the default rule for personal folders is created.
 	 */
 	public function includePersonal(): bool {
 		return $this->appConfig->getValueBool(Application::APP_ID, Application::CONFIG_INCLUDE_PERSONAL, false);
@@ -83,7 +83,7 @@ class Settings {
 		$this->appConfig->setValueBool(Application::APP_ID, Application::CONFIG_INCLUDE_PERSONAL, $on);
 	}
 
-	/** Informative Aufbewahrungs-Tags an Dateien und Ordnern setzen? Standard AUS */
+	/** Set informational retention tags on files and folders? Default OFF */
 	public function tagsEnabled(): bool {
 		return $this->appConfig->getValueBool(Application::APP_ID, Application::CONFIG_TAGS, false);
 	}
@@ -93,8 +93,8 @@ class Settings {
 	}
 
 	/**
-	 * Konten, deren Dateien als Arbeitsbereich gelten (Funktionskonten mit geteilten Ordnern):
-	 * Für sie gilt die Standardregel, unabhängig von includePersonal().
+	 * Accounts whose files count as a workspace (functional accounts with shared folders):
+	 * the default rule applies to them, regardless of includePersonal().
 	 *
 	 * @return list<string>
 	 */
@@ -116,7 +116,7 @@ class Settings {
 		$this->appConfig->setValueString(Application::APP_ID, self::WORKSPACE_ACCOUNTS, json_encode($list));
 	}
 
-	/** Sekunden pro Job-Ausführung */
+	/** Seconds per job execution */
 	public function timeBudget(): int {
 		return max(10, $this->appConfig->getValueInt(Application::APP_ID, self::TIME_BUDGET, 120));
 	}
@@ -125,7 +125,7 @@ class Settings {
 		return max(50, $this->appConfig->getValueInt(Application::APP_ID, self::BATCH_SIZE, 500));
 	}
 
-	/** Betriebsart der Hintergrundjobs: cron (System-Cron), ajax oder webcron */
+	/** Background jobs mode: cron (system cron), ajax or webcron */
 	public function backgroundJobsMode(): string {
 		try {
 			return $this->appConfig->getValueString('core', 'backgroundjobs_mode', 'ajax');
@@ -143,7 +143,7 @@ class Settings {
 	}
 
 	/**
-	 * Cursor des laufenden Zyklus. Ältere Cursor (0.7.x, Vorstufe 0.8 mit „seen“) bleiben lesbar.
+	 * Cursor of the current cycle. Older cursors (0.7.x, 0.8 pre-release with "seen") remain readable.
 	 *
 	 * @return array{root: string, after: int}|null
 	 */
@@ -168,15 +168,15 @@ class Settings {
 	}
 
 	/**
-	 * App-Config neu aus der Datenbank lesen. IAppConfig hält die Werte je Prozess (im Web
-	 * zusätzlich kurz in APCu); ein Hintergrundjob, der lange nach Prozessstart drankommt, sähe
-	 * sonst Cursor und Zyklusende von vor seinem Start.
+	 * Re-read the app config from the database. IAppConfig keeps the values per process (on the web
+	 * additionally briefly in APCu); a background job that runs long after process start would
+	 * otherwise see the cursor and cycle end from before it started.
 	 */
 	public function refresh(): void {
 		try {
 			$this->appConfig->clearCache();
 		} catch (\Throwable) {
-			// ältere Nextcloud ohne clearCache – dann bleibt es beim Prozess-Stand
+			// older Nextcloud without clearCache – then the per-process state stays
 		}
 	}
 
@@ -189,13 +189,13 @@ class Settings {
 	}
 
 	/**
-	 * Sperre gegen parallele Läufe (occ und Hintergrundjob): eine Zeile in folder_retention_lock
-	 * mit Ablauf. Atomar: Neu angelegt wird per Einfügen ohne Überschreiben (Primärschlüssel),
-	 * übernommen nur per UPDATE mit Bedingung „abgelaufen oder schon meine“ – die Datenbank
-	 * lässt dabei genau einen Prozess gewinnen. Stürzt ein Lauf ab, läuft die Sperre nach
-	 * $ttl Sekunden von selbst aus.
+	 * Lock against parallel runs (occ and background job): one row in folder_retention_lock
+	 * with an expiry. Atomic: a new lock is created by insert-without-overwrite (primary key),
+	 * taken over only by an UPDATE conditioned on "expired or already mine" – the database
+	 * lets exactly one process win. If a run crashes, the lock expires on its own after
+	 * $ttl seconds.
 	 *
-	 * @return array{holder: string, token: string, until: int}|null fremder Halter oder null = erhalten
+	 * @return array{holder: string, token: string, until: int}|null foreign holder, or null = acquired
 	 */
 	public function acquireRunLease(string $holder, string $token, int $now, int $ttl): ?array {
 		$holder = mb_substr($holder, 0, 255);
@@ -224,15 +224,15 @@ class Settings {
 			if ($current !== null) {
 				return $current;
 			}
-			// Zeile verschwand zwischen den Schritten (Halter hat freigegeben) – noch einmal
+			// row vanished between the steps (holder released it) – try again
 		}
 		return ['holder' => 'unbekannt', 'token' => '', 'until' => $now + $ttl];
 	}
 
 	/**
-	 * Gehaltene Sperre verlängern.
+	 * Extend a held lock.
 	 *
-	 * @return bool false = Sperre gehört nicht mehr diesem Lauf (abgelaufen und übernommen)
+	 * @return bool false = lock no longer belongs to this run (expired and taken over)
 	 */
 	public function renewRunLease(string $token, int $now, int $ttl): bool {
 		$qb = $this->db->getQueryBuilder();
@@ -267,50 +267,50 @@ class Settings {
 	}
 
 	/**
-	 * Grenze zwischen Bestand und neu: höchste Datei-ID im Filecache bei Installation bzw. beim
-	 * Update auf 0.8 (InstallDefaults). Dateien mit höherer ID sind danach entstanden – auch
-	 * Kopien, die Upload- und Erstellzeit des Originals erben (Cache::copyFromCache), bekommen
-	 * stets eine neue, höhere ID. Für sie zählt „zuerst gesehen“ neben der Upload-Zeit;
-	 * Verschieben und Wiederherstellen behalten die ID. null = noch nicht gesetzt.
+	 * Boundary between existing and new files: highest file ID in the file cache at installation or
+	 * at the update to 0.8 (InstallDefaults). Files with a higher ID were created afterwards – even
+	 * copies, which inherit the original's upload and creation time (Cache::copyFromCache), always
+	 * get a new, higher ID. For them, "first seen" counts alongside the upload time;
+	 * moving and restoring keep the ID. null = not set yet.
 	 */
 	public function seenMaxFileId(): ?int {
 		$id = $this->appConfig->getValueInt(Application::APP_ID, self::SEEN_MAX_FILEID, 0);
 		return $id > 0 ? $id : null;
 	}
 
-	/** Einmalig setzen – ein späterer Wert würde neue Dateien (Kopien) wieder als Bestand zählen */
+	/** Set only once – a later value would count new files (copies) as existing files again */
 	public function initSeenMaxFileId(int $maxFileId): void {
 		if ($this->seenMaxFileId() === null) {
-			// 0 bei leerem Filecache: dann gilt jede Datei als neu – kleinster gültiger Wert ist 1
+			// 0 for an empty file cache: then every file counts as new – smallest valid value is 1
 			$this->appConfig->setValueInt(Application::APP_ID, self::SEEN_MAX_FILEID, max(1, $maxFileId));
 		}
 	}
 
 	/**
-	 * Grenze des frühen 0.8.0-Stands (fb4395c): Ende des ersten vollständigen Zyklus. Dort galt
-	 * eine Datei als neu, wenn ihr „zuerst gesehen“ danach lag. Nur noch für den Wechsel auf
-	 * seen_max_fileid gelesen (InstallDefaults). null = nicht gesetzt.
+	 * Boundary of the early 0.8.0 state (fb4395c): end of the first complete cycle. There a file
+	 * counted as new if its "first seen" lay after it. Now only read for the switch to
+	 * seen_max_fileid (InstallDefaults). null = not set.
 	 */
 	public function legacySeenSince(): ?int {
 		$ts = $this->appConfig->getValueInt(Application::APP_ID, self::LEGACY_SEEN_SINCE, 0);
 		return $ts > 0 ? $ts : null;
 	}
 
-	/** Erst entfernen, wenn seen_max_fileid daraus abgeleitet ist */
+	/** Only remove once seen_max_fileid has been derived from it */
 	public function dropLegacySeenSince(): void {
 		$this->appConfig->deleteKey(Application::APP_ID, self::LEGACY_SEEN_SINCE);
 	}
 
 	/**
-	 * Bereiche, in denen nach einer endgültigen Löschung (Papierkorb umgangen) nichts mehr
-	 * gelöscht wird, bis ein Admin die Sperre aufhebt.
+	 * Scopes in which, after a permanent deletion (trash bin bypassed), nothing more is
+	 * deleted until an admin lifts the block.
 	 *
-	 * Eine Zeile je Bereich in folder_retention_block, jedes Mal frisch aus der Datenbank gelesen –
-	 * nicht in der App-Config: Deren Prozess-Cache (im Web dazu APCu) ließe einen Lauf, der vor dem
-	 * Setzen einer Sperre gestartet ist, im gesperrten Bereich weiterlöschen, und Lesen-Ändern-
-	 * Schreiben einer gemeinsamen Liste verlöre Sperren anderer Prozesse.
+	 * One row per scope in folder_retention_block, read fresh from the database every time –
+	 * not in the app config: its per-process cache (plus APCu on the web) would let a run that
+	 * started before a block was set keep deleting in the blocked scope, and read-modify-write
+	 * of a shared list would lose blocks set by other processes.
 	 *
-	 * @return array<string, array{label: string, reason: string, at: int}> Bereichsschlüssel → Grund
+	 * @return array<string, array{label: string, reason: string, at: int}> scope key → reason
 	 */
 	public function blockedRoots(): array {
 		$this->migrateLegacyBlocks();
@@ -322,8 +322,8 @@ class Settings {
 	}
 
 	/**
-	 * $rootKey = RetentionRoot::blockKey() (Storage + Wurzel, ohne Art). Ältere Einträge tragen
-	 * noch die Art davor („home:…“, „workspace:…“) – sie gelten für denselben Bereich.
+	 * $rootKey = RetentionRoot::blockKey() (storage + root, without kind). Older entries still carry
+	 * the kind as a prefix ("home:…", "workspace:…") – they apply to the same scope.
 	 */
 	public function isRootBlocked(string $rootKey): bool {
 		foreach (array_keys($this->blockedRoots()) as $key) {
@@ -334,19 +334,19 @@ class Settings {
 		return false;
 	}
 
-	/** Sperre setzen; eine schon bestehende für den Bereich bleibt mit ihrem Grund und Zeitpunkt */
+	/** Set a block; an existing block for the scope stays with its reason and timestamp */
 	public function blockRoot(string $rootKey, string $label, string $reason, int $at): void {
 		$this->insertBlock($rootKey, mb_substr($label, 0, 255), mb_substr($reason, 0, 500), $at);
 	}
 
 	/**
-	 * Nur die genannten Sperren aufheben – alle anderen (auch inzwischen neu hinzugekommene)
-	 * bleiben. Mit Zeitpunkt ($at) nur, wenn die Sperre noch genau die angezeigte ist: Wurde sie
-	 * zwischenzeitlich aufgehoben und neu gesetzt, bleibt die neue stehen. Je Sperre ein DELETE
-	 * mit Bedingung – nichts wird aus einem älteren Stand zurückgeschrieben.
+	 * Lift only the named blocks – all others (including ones added in the meantime)
+	 * stay. With a timestamp ($at) only if the block is still exactly the one displayed: if it was
+	 * lifted and set again in the meantime, the new one stays. One conditional DELETE per
+	 * block – nothing is written back from an older state.
 	 *
-	 * @param array<string, ?int> $keys Bereichsschlüssel → angezeigter Zeitpunkt (null = egal)
-	 * @return list<string> tatsächlich aufgehobene Schlüssel
+	 * @param array<string, ?int> $keys scope key → displayed timestamp (null = any)
+	 * @return list<string> keys actually lifted
 	 */
 	public function unblockRoots(array $keys): array {
 		$this->migrateLegacyBlocks();
@@ -361,10 +361,10 @@ class Settings {
 	}
 
 	/**
-	 * In der Vorstufe von 0.8.0 standen die Sperren als JSON in der App-Config (blocked_roots). Übernimmt sie in die
-	 * Tabelle – beim Update (InstallDefaults) und vorsichtshalber bei jedem Zugriff, falls ein noch
-	 * laufender alter Prozess eine Sperre dorthin geschrieben hat. Vor dem Übernehmen frisch lesen:
-	 * Ein veralteter Prozess-Stand setzte sonst längst aufgehobene Sperren wieder.
+	 * In the 0.8.0 pre-release the blocks were stored as JSON in the app config (blocked_roots). Moves them into the
+	 * table – on update (InstallDefaults) and, as a precaution, on every access, in case a still
+	 * running old process wrote a block there. Read fresh before migrating:
+	 * a stale per-process state would otherwise re-set blocks that were lifted long ago.
 	 */
 	public function migrateLegacyBlocks(): void {
 		if ($this->appConfig->getValueString(Application::APP_ID, self::BLOCKED_ROOTS, '') === '') {
@@ -384,9 +384,9 @@ class Settings {
 		$this->appConfig->deleteKey(Application::APP_ID, self::BLOCKED_ROOTS);
 	}
 
-	// Datenbankzugriffe, gekapselt (in Unit-Tests ersetzt)
+	// Database access, encapsulated (replaced in unit tests)
 
-	/** Rohwert von simulation_mode in oc_appconfig; null = kein Eintrag */
+	/** Raw value of simulation_mode in oc_appconfig; null = no entry */
 	protected function loadSimulationValue(): ?string {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('configvalue')->from('appconfig')
@@ -412,14 +412,14 @@ class Settings {
 		return $out;
 	}
 
-	/** Einfügen ohne Überschreiben (Primärschlüssel block_key) – atomar, auch bei parallelen Läufen */
+	/** Insert without overwriting (primary key block_key) – atomic, even with parallel runs */
 	protected function insertBlock(string $key, string $label, string $reason, int $at): void {
 		$this->db->insertIgnoreConflict(self::BLOCK_TABLE, [
 			'block_key' => $key, 'label' => $label, 'reason' => $reason, 'blocked_at' => $at,
 		]);
 	}
 
-	/** @return int Anzahl gelöschter Zeilen */
+	/** @return int number of deleted rows */
 	protected function deleteBlock(string $key, ?int $at): int {
 		$qb = $this->db->getQueryBuilder();
 		$qb->delete(self::BLOCK_TABLE)

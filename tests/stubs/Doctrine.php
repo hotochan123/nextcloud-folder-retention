@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 /**
- * Stellvertreter für die Doctrine-Konstanten, auf die OCP\DB\QueryBuilder\IQueryBuilder und
- * IExpressionBuilder verweisen – nextcloud/ocp liefert Doctrine nicht mit, ohne sie lassen sich
- * IDBConnection und IQueryBuilder nicht mocken. Werte wie doctrine/dbal 3.x (NC 34).
+ * Stand-ins for the Doctrine constants referenced by OCP\DB\QueryBuilder\IQueryBuilder and
+ * IExpressionBuilder – nextcloud/ocp does not ship Doctrine, and without them
+ * IDBConnection and IQueryBuilder cannot be mocked. Values as in doctrine/dbal 3.x (NC 34).
  */
 
 namespace Doctrine\DBAL {

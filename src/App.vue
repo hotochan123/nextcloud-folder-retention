@@ -111,11 +111,11 @@ async function onExpandAll() {
 
 onMounted(loadAll)
 
-/** Bereiche, in denen nach einer endgültigen Löschung nichts mehr gelöscht wird */
+/** Areas in which nothing is deleted anymore after a permanent deletion */
 const blocked = computed(() => state.settings.blockedRoots ?? [])
 const unblocking = ref(false)
 
-/** Nur diesen Bereich entsperren – andere (auch inzwischen neu gesperrte) bleiben gesperrt */
+/** Unblock only this area – others (including ones blocked again in the meantime) stay blocked */
 async function onUnblock(entry) {
 	unblocking.value = true
 	try {
@@ -135,7 +135,7 @@ async function onUnblock(entry) {
 	}
 }
 
-// Warnung beim Verlassen mit ungespeicherten Änderungen
+// Warn when leaving with unsaved changes
 window.addEventListener('beforeunload', (e) => {
 	if (dirtyCount.value > 0) {
 		e.preventDefault()

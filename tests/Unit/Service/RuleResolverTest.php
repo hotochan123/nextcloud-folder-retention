@@ -14,23 +14,23 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Testbaum (Ordner-IDs in Klammern, Regeln rechts):
+ * Test tree (folder IDs in parentheses, rules on the right):
  *
  *   /                         (1)
- *   ├── Academy               (10)  1 Monat, inherit
+ *   ├── Academy               (10)  1 month, inherit
  *   │   ├── Projekte          (11)  –
  *   │   │   └── 2026          (12)  –
- *   │   └── Archiv            (13)  Nie, inherit      ← verschachtelte Ausnahme
+ *   │   └── Archiv            (13)  Never, inherit    ← nested exception
  *   │       ├── Alt           (14)  –
- *   │       └── Temp          (15)  1 Tag, inherit    ← Ausnahme in der Ausnahme
+ *   │       └── Temp          (15)  1 day, inherit    ← exception within the exception
  *   │           └── X         (16)  –
- *   ├── QM-IT                 (20)  Nie, here         ← nur diese Ebene
+ *   ├── QM-IT                 (20)  Never, here       ← this level only
  *   │   └── Entwürfe          (21)  –
  *   │       └── Tief          (22)  –
- *   ├── Kommunikation         (30)  2 Wochen, inherit
- *   │   └── Presse            (31)  1 Woche, here     ← here unter inherit
+ *   ├── Kommunikation         (30)  2 weeks, inherit
+ *   │   └── Presse            (31)  1 week, here      ← here below inherit
  *   │       └── Fotos         (32)  –
- *   │           └── Roh       (33)  3 Tage, here
+ *   │           └── Roh       (33)  3 days, here
  *   │               └── Neu   (34)  –
  *   └── Sonstiges             (40)  –
  */
@@ -40,7 +40,7 @@ class RuleResolverTest extends TestCase {
 	/** @var array<int, RetentionRule> */
 	private array $rules;
 
-	/** Elternkette je Ordner: [ordner, eltern, …, wurzel] */
+	/** Parent chain per folder: [folder, parent, …, root] */
 	private const CHAINS = [
 		1 => [1],
 		10 => [10, 1], 11 => [11, 10, 1], 12 => [12, 11, 10, 1],
@@ -68,29 +68,29 @@ class RuleResolverTest extends TestCase {
 	}
 
 	/**
-	 * @return iterable<string, array{int, ?int, ?int}> Elternordner der Datei, erwartete Regel-ID (null = Standard), erwartete Tiefe
+	 * @return iterable<string, array{int, ?int, ?int}> parent folder of the file, expected rule ID (null = default), expected depth
 	 */
 	public static function fileCases(): iterable {
-		// Regel direkt am Elternordner
+		// Rule directly on the parent folder
 		yield 'Datei direkt in Academy' => [10, 100, 0];
-		// Vererbung über mehrere Ebenen
+		// Inheritance across several levels
 		yield 'Academy/Projekte' => [11, 100, 1];
 		yield 'Academy/Projekte/2026' => [12, 100, 2];
-		// Verschachtelte Ausnahme überschreibt die äußere Regel
+		// Nested exception overrides the outer rule
 		yield 'Academy/Archiv' => [13, 101, 0];
 		yield 'Academy/Archiv/Alt erbt Ausnahme' => [14, 101, 1];
 		yield 'Ausnahme in der Ausnahme' => [15, 102, 0];
 		yield 'unter Ausnahme in der Ausnahme' => [16, 102, 1];
-		// scope=here: gilt direkt, aber nicht für Unterordner
+		// scope=here: applies directly, but not to subfolders
 		yield 'QM-IT direkt (here gilt)' => [20, 103, 0];
 		yield 'QM-IT/Entwürfe fällt auf Standard' => [21, null, null];
 		yield 'QM-IT/Entwürfe/Tief fällt auf Standard' => [22, null, null];
-		// here unter inherit: Unterordner überspringen die here-Regel und erben weiter oben
+		// here below inherit: subfolders skip the here rule and inherit from further up
 		yield 'Presse direkt (here)' => [31, 105, 0];
 		yield 'Presse/Fotos überspringt here, erbt Kommunikation' => [32, 104, 2];
 		yield 'Roh direkt (here)' => [33, 106, 0];
 		yield 'Roh/Neu überspringt zwei here-Regeln' => [34, 104, 4];
-		// keine Regel im Pfad
+		// no rule in the path
 		yield 'Sonstiges → Standard' => [40, null, null];
 		yield 'Wurzel → Standard' => [1, null, null];
 	}
@@ -112,7 +112,7 @@ class RuleResolverTest extends TestCase {
 	}
 
 	/**
-	 * @return iterable<string, array{int, ?int}> Ordner, erwartete Regel-ID für dessen Unterordner
+	 * @return iterable<string, array{int, ?int}> folder, expected rule ID for its subfolders
 	 */
 	public static function childCases(): iterable {
 		yield 'Academy vererbt sich selbst' => [10, 100];
@@ -130,7 +130,7 @@ class RuleResolverTest extends TestCase {
 	}
 
 	public function testResolveForChildrenMatchesResolveOfRealChildWithoutRule(): void {
-		// Konsistenz: Was resolveForChildren(Q) sagt, muss resolve(Kind von Q) liefern.
+		// Consistency: what resolveForChildren(Q) says must match resolve(child of Q).
 		foreach ([[20, 21], [31, 32], [33, 34], [10, 11], [13, 14]] as [$folder, $child]) {
 			$forChildren = $this->resolver->resolveForChildren(self::CHAINS[$folder], $this->rules, $this->default);
 			$actual = $this->resolver->resolve(self::CHAINS[$child], $this->rules, $this->default);
@@ -149,7 +149,7 @@ class RuleResolverTest extends TestCase {
 	}
 
 	public function testHereRuleOnDirectParentWinsEvenIfAncestorInherits(): void {
-		// Presse (here, 1 Woche) liegt unter Kommunikation (inherit, 2 Wochen)
+		// Presse (here, 1 week) sits below Kommunikation (inherit, 2 weeks)
 		$res = $this->resolver->resolve(self::CHAINS[31], $this->rules, $this->default);
 		$this->assertSame(PeriodUnit::Week, $res->rule->period->unit);
 		$this->assertSame(1, $res->rule->period->value);
@@ -161,13 +161,13 @@ class RuleResolverTest extends TestCase {
 	}
 
 	public function testRulesForFoldersOutsideChainAreIgnored(): void {
-		// Regeln an Geschwister-Ordnern dürfen keinen Einfluss haben
+		// Rules on sibling folders must have no effect
 		$res = $this->resolver->resolve(self::CHAINS[40], $this->rules, $this->default);
 		$this->assertTrue($res->isDefault());
 	}
 
 	public function testChainKeysAreNormalised(): void {
-		// Nicht-fortlaufende Array-Schlüssel dürfen die Tiefe nicht verfälschen
+		// Non-contiguous array keys must not distort the depth
 		$res = $this->resolver->resolve([5 => 11, 9 => 10, 2 => 1], $this->rules, $this->default);
 		$this->assertSame(1, $res->depth);
 	}

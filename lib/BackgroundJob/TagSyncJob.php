@@ -11,9 +11,9 @@ use OCP\BackgroundJob\QueuedJob;
 use Psr\Log\LoggerInterface;
 
 /**
- * Einmaliger Tag-Abgleich nach einer Regeländerung oder einem verschobenen Ordner.
- * Argument: ['folderId' => int|null] – null = alle Bereiche (Standardregel geändert, Tags eingeschaltet).
- * IJobList::add() legt pro Argument höchstens einen wartenden Job an.
+ * One-off tag sync after a rule change or a moved folder.
+ * Argument: ['folderId' => int|null] – null = all areas (default rule changed, tags switched on).
+ * IJobList::add() queues at most one pending job per argument.
  */
 class TagSyncJob extends QueuedJob {
 	public function __construct(

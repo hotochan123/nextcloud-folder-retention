@@ -14,7 +14,7 @@ use OCP\Files\Events\Node\NodeRenamedEvent;
 use Psr\Log\LoggerInterface;
 
 /**
- * Neue, kopierte und verschobene Dateien/Ordner sofort taggen.
+ * Tag new, copied and moved files/folders immediately.
  *
  * @template-implements IEventListener<Event>
  */
@@ -36,13 +36,13 @@ class NodeTagListener implements IEventListener {
 			} elseif ($event instanceof NodeCopiedEvent) {
 				$this->tagger->tag($event->getTarget(), true);
 			} elseif ($event instanceof NodeRenamedEvent) {
-				// Umbenennen im selben Ordner ändert nichts an der geltenden Frist
+				// Renaming within the same folder doesn't change the applicable retention period
 				if (dirname($event->getSource()->getPath()) !== dirname($event->getTarget()->getPath())) {
 					$this->tagger->tag($event->getTarget(), true);
 				}
 			}
 		} catch (\Throwable $e) {
-			// Tags sind nur Anzeige – Uploads und Verschieben dürfen daran nie scheitern
+			// Tags are display only – uploads and moves must never fail because of them
 			$this->logger->warning('folder_retention: could not set tag', ['exception' => $e]);
 		}
 	}

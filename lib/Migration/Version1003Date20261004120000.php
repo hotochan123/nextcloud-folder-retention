@@ -11,11 +11,11 @@ use OCP\Migration\IOutput;
 use OCP\Migration\SimpleMigrationStep;
 
 /**
- * Sicherheitssperren je Bereich (nach einer endgültigen Löschung): eine Zeile je Bereich statt
- * einer JSON-Liste in der App-Config. Gesetzt per Einfügen ohne Überschreiben, aufgehoben per
- * DELETE mit Bedingung, gelesen immer frisch – die App-Config hält Werte je Prozess, ein lange
- * laufender Cron sähe sonst eine neue Sperre nicht. Alte Einträge (blocked_roots) übernimmt
- * InstallDefaults bzw. Settings::migrateLegacyBlocks.
+ * Safety locks per area (after a permanent deletion): one row per area instead of
+ * a JSON list in the app config. Set via insert without overwriting, lifted via
+ * conditional DELETE, always read fresh – the app config caches values per process, so a long-
+ * running cron would otherwise not see a new lock. Old entries (blocked_roots) are taken over by
+ * InstallDefaults or Settings::migrateLegacyBlocks.
  */
 class Version1003Date20261004120000 extends SimpleMigrationStep {
 
@@ -26,7 +26,7 @@ class Version1003Date20261004120000 extends SimpleMigrationStep {
 			return null;
 		}
 		$table = $schema->createTable('folder_retention_block');
-		// RetentionRoot::blockKey() bzw. ältere Form mit Art davor („workspace:…“)
+		// RetentionRoot::blockKey() or the older form prefixed with the kind ("workspace:…")
 		$table->addColumn('block_key', Types::STRING, ['notnull' => true, 'length' => 128]);
 		$table->addColumn('label', Types::STRING, ['notnull' => false, 'length' => 255]);
 		$table->addColumn('reason', Types::TEXT, ['notnull' => false]);

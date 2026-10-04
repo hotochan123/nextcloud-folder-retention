@@ -5,7 +5,7 @@
 				<caption class="hidden-visually">
 					{{ t('folder_retention', 'Log of deletions') }}
 				</caption>
-				<!-- feste Spaltenbreiten: die Tabellen der Ordner stehen untereinander und fluchten -->
+				<!-- fixed column widths: the folder tables are stacked and line up -->
 				<colgroup>
 					<col class="fr-col--time">
 					<col v-if="mixed" class="fr-col--status">
@@ -39,12 +39,12 @@
 						</td>
 						<td v-if="mixed">
 							<StatusChip :tone="CATEGORY_TONE[categoryOf(e.status)]" :label="statusLabel(e.status)" />
-							<!-- „würde löschen“ gibt es nur in der Simulation – sonst den Modus dazusagen -->
+							<!-- "would delete" only exists in simulation – otherwise state the mode as well -->
 							<span v-if="e.mode === 'simulation' && e.status !== 'would_delete'" class="fr-sim">{{ t('folder_retention', 'Simulation') }}</span>
 						</td>
 						<td class="fr-path">
 							{{ baseName(e.path) }}
-							<!-- auch ohne Statusspalte: echte Löschungen nennen hier das Konto des Papierkorbs -->
+							<!-- even without the status column: real deletions name the trash bin's account here -->
 							<div v-if="e.message" class="fr-msg">
 								{{ e.message }}
 							</div>
@@ -81,17 +81,17 @@ import { baseName, CATEGORY_TONE, categoryOf, countChips, formatDate, formatTime
 import { t } from '../l10n.js'
 
 const props = defineProps({
-	/** { loading, error, entries, total } eines Ordners */
+	/** { loading, error, entries, total } of a folder */
 	state: { type: Object, required: true },
-	/** Zahlen je Statusgruppe des Ordners */
+	/** Counts per status group of the folder */
 	counts: { type: Object, required: true },
 })
 const emit = defineEmits(['more'])
 
-/** Statusspalte nur, wenn der Ordner nicht ausschließlich „gelöscht“ oder „würde löschen“ enthält */
+/** Status column only if the folder does not contain exclusively "deleted" or "would delete" */
 const mixed = computed(() => countChips(props.counts).length > 1 || props.counts.skipped > 0 || props.counts.error > 0)
 
-// Texte als Funktion: erst beim Anzeigen übersetzen
+// Texts as functions: translate only when displayed
 const STATUS = {
 	deleted: () => t('folder_retention', 'Deleted'),
 	would_delete: () => t('folder_retention', 'Would delete'),
@@ -134,7 +134,7 @@ const statusLabel = (s) => STATUS[s]?.() ?? s
 			border-bottom: none;
 		}
 
-		// Nextcloud setzt in Tabellen teils nowrap – Datum samt Quelle darf umbrechen
+		// Nextcloud sometimes sets nowrap in tables – date plus source may wrap
 		td:not(.fr-nowrap) {
 			white-space: normal;
 		}

@@ -14,10 +14,10 @@ use OCP\IDBConnection;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Ableitung der Grenze aus seen_since (SQL-Aufbau; gegen echte Datenbank prüft der Harness S24).
+ * Deriving the boundary from seen_since (SQL construction; the harness checks against a real database in S24).
  */
 class FirstSeenTest extends TestCase {
-	/** @var array<string, int|null> „max:lte“ bzw. „min:gt“ → Ergebnis */
+	/** @var array<string, int|null> "max:lte" or "min:gt" → result */
 	private array $answers = [];
 	/** @var list<string> */
 	private array $queries = [];
@@ -53,7 +53,7 @@ class FirstSeenTest extends TestCase {
 				$key = $state['fn'] . ':' . $state['cmp'];
 				$this->queries[] = $key;
 				$result = $this->createMock(IResult::class);
-				// leere Tabelle: Aggregat liefert NULL
+				// empty table: aggregate returns NULL
 				$result->method('fetchOne')->willReturn($this->answers[$key] ?? null);
 				return $result;
 			});
@@ -74,10 +74,10 @@ class FirstSeenTest extends TestCase {
 	}
 
 	/**
-	 * Zyklus 1 unter 0.8.0: Bereich A um T0 gescannt (IDs bis 100), um T1 entsteht in A die
-	 * Kopie 150 einer Datei von 2020 (erbt die Upload-Zeit), Bereich B um T2 gescannt (neue
-	 * Datei 160), Zyklusende T3 = seen_since. Die Kopie sieht erst Zyklus 2 (T4 > T3) – unter
-	 * 0.8.0 neu und geschützt. Die Grenze muss unter 150 liegen, nicht bei 160.
+	 * Cycle 1 under 0.8.0: area A scanned at T0 (IDs up to 100), at T1 copy 150 of a file from 2020
+	 * is created in A (inherits the upload time), area B scanned at T2 (new
+	 * file 160), cycle end T3 = seen_since. Only cycle 2 (T4 > T3) sees the copy – under
+	 * 0.8.0 new and protected. The boundary must be below 150, not at 160.
 	 */
 	public function testCopyFromFirstCycleStaysNew(): void {
 		[$t0, $t2, $t3, $t4] = [1000, 1020, 1030, 1040];
@@ -93,14 +93,14 @@ class FirstSeenTest extends TestCase {
 	}
 
 	/**
-	 * Nach seen_since (T0, höchste bis dahin gesehene ID 900): Zyklus 2 scannt alice, danach
-	 * legt sie per COPY die Kopie 1000 einer 700 Tage alten Datei an (erbt die Upload-Zeit,
-	 * in diesem Zyklus nicht mehr gesehen), dann lädt bob 1001 hoch – gesehen nach T0. Update:
-	 * Die Kopie war beim Update ungesehen und muss neu bleiben – Grenze unter 1000, nicht bei 1000.
+	 * After seen_since (T0, highest ID seen so far 900): cycle 2 scans alice, then
+	 * she creates copy 1000 of a 700-day-old file via COPY (inherits the upload time,
+	 * no longer seen in this cycle), then bob uploads 1001 – seen after T0. Update:
+	 * the copy was unseen at update time and must stay new – boundary below 1000, not at 1000.
 	 */
 	public function testCopyUnseenAtUpdateStaysNew(): void {
 		$t0 = 2000;
-		$seen = [5 => 1500, 900 => $t0, 1001 => 2100]; // Kopie 1000 fehlt: noch nicht gesehen
+		$seen = [5 => 1500, 900 => $t0, 1001 => 2100]; // copy 1000 missing: not seen yet
 		$this->answers = [
 			'max:lte' => max(array_keys(array_filter($seen, fn (int $at) => $at <= $t0))),
 			'min:gt' => min(array_keys(array_filter($seen, fn (int $at) => $at > $t0))),

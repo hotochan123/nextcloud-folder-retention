@@ -26,7 +26,7 @@ class RuleService {
 	) {
 	}
 
-	/** @return list<Rule> Standardregeln zuerst */
+	/** @return list<Rule> default rules first */
 	public function list(): array {
 		$this->ensureDefault();
 		$this->ensurePersonalDefault();
@@ -53,19 +53,19 @@ class RuleService {
 	}
 
 	/**
-	 * Legt die Standardregel an, falls sie fehlt: „Nie löschen“. Eine Frist muss ein Admin
-	 * bewusst setzen – sonst würde das Abschalten der Simulation die ganze Instanz aufräumen.
-	 * Vorhandene Regeln bleiben unverändert (auch bei Updates).
+	 * Creates the default rule if it is missing: "Never delete". A retention period must be set
+	 * deliberately by an admin – otherwise switching off simulation would clean up the whole instance.
+	 * Existing rules remain unchanged (also on updates).
 	 */
 	public function ensureDefault(): Rule {
 		return $this->mapper->findDefault() ?? $this->insertDefault(null, null, PeriodUnit::Never);
 	}
 
 	/**
-	 * Legt die Standardregel für persönliche Ordner an, falls sie fehlt: „Nie löschen“
-	 * (persönliche Ordner sind damit ausgenommen).
-	 * Beim Upgrade von Versionen mit dem Schalter „Standardregel auch für persönliche Dateien“:
-	 * war er an, gilt die bisherige Standardfrist weiter.
+	 * Creates the default rule for personal folders if it is missing: "Never delete"
+	 * (personal folders are thus excluded).
+	 * When upgrading from versions with the switch "Default rule also for personal files":
+	 * if it was on, the previous default retention period continues to apply.
 	 */
 	public function ensurePersonalDefault(): Rule {
 		$rule = $this->mapper->findDefault(true);
@@ -96,11 +96,11 @@ class RuleService {
 	}
 
 	/**
-	 * Regel anlegen oder ändern.
+	 * Create or update a rule.
 	 *
-	 * @param int|null $folderId null = Standardregel. Dass der Ordner existiert, prüft der Aufrufer.
+	 * @param int|null $folderId null = default rule. The caller checks that the folder exists.
 	 * @param array{periodUnit?: mixed, periodValue?: mixed, scope?: mixed, basis?: mixed, notify?: mixed} $input
-	 * @param bool $personal bei $folderId = null: Standardregel für persönliche Ordner
+	 * @param bool $personal with $folderId = null: default rule for personal folders
 	 */
 	public function upsert(?int $folderId, array $input, ?string $userId, bool $personal = false): Rule {
 		[$period, $scope, $basis, $notify] = $this->validate($folderId, $input);
@@ -133,7 +133,7 @@ class RuleService {
 		}
 	}
 
-	/** Entfernt die Regel eines Ordners; der Ordner erbt danach wieder. */
+	/** Removes a folder's rule; the folder inherits again afterwards. */
 	public function delete(int $folderId): bool {
 		$rule = $this->mapper->findByFolderId($folderId);
 		if ($rule === null) {

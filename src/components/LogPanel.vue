@@ -1,5 +1,5 @@
 <template>
-	<!-- eigene section statt NcSettingsSection: deren feste Breite (900 px) ist für die Tabelle zu schmal -->
+	<!-- own section instead of NcSettingsSection: its fixed width (900 px) is too narrow for the table -->
 	<section class="section fr-log" aria-labelledby="fr-log-title">
 		<h2 id="fr-log-title">
 			{{ t('folder_retention', 'Log') }}
@@ -157,11 +157,11 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const exporting = ref(false)
 const error = ref(null)
-/** Tag → { open, loading, error, folders } */
+/** day → { open, loading, error, folders } */
 const dayState = reactive({})
-/** Tag + Ordner → { open, loading, error, entries, total } */
+/** day + folder → { open, loading, error, entries, total } */
 const folderState = reactive({})
-/** Antworten von vor einem Filterwechsel verwerfen */
+/** Discard responses from before a filter change */
 let generation = 0
 
 const filtered = computed(() => Object.values(filter).some(v => v !== ''))
@@ -169,7 +169,7 @@ const datesActive = computed(() => filter.from !== '' || filter.to !== '')
 
 const loadError = (e) => e?.response?.data?.message ?? t('folder_retention', 'Log could not be loaded')
 
-/** Datumsfelder (lokaler Tag) → Unix-Zeitstempel; „Bis“ schließt den ganzen Tag ein */
+/** Date fields (local day) → Unix timestamp; "To" includes the whole day */
 function params() {
 	const day = (s, end) => s ? Math.floor(new Date(`${s}T${end ? '23:59:59' : '00:00:00'}`).getTime() / 1000) : undefined
 	return {
@@ -180,7 +180,7 @@ function params() {
 	}
 }
 
-/** Filter, eingeschränkt auf einen Tag der Übersicht */
+/** Filters, restricted to one day of the overview */
 function dayParams(day) {
 	const p = params()
 	return { ...p, from: Math.max(p.from ?? 0, day.from), to: Math.min(p.to ?? day.to, day.to) }
@@ -199,7 +199,7 @@ async function reload() {
 		if (gen !== generation) return
 		days.value = data.days
 		totalDays.value = data.total
-		// der neueste Tag ist aufgeklappt
+		// the newest day is expanded
 		if (data.days.length) {
 			openDay(data.days[0])
 		}
@@ -237,7 +237,7 @@ function onDayToggle(day, event) {
 	}
 }
 
-/** Aufklappen und Ordner einmal laden – über das toggle-Ereignis oder direkt */
+/** Expand and load the folders once – via the toggle event or directly */
 async function openDay(day) {
 	if (!dayState[day.date]) {
 		dayState[day.date] = { open: false, loading: false, error: null, folders: null }
@@ -252,7 +252,7 @@ async function openDay(day) {
 		const folders = await fetchLogFolders(dayParams(day))
 		if (gen !== generation) return
 		st.folders = folders
-		// ein einzelner Ordner klappt gleich mit auf
+		// a single folder is expanded right away as well
 		if (folders.length === 1) {
 			openFolder(day, folders[0])
 		}

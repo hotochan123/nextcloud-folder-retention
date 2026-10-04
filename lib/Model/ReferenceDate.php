@@ -8,42 +8,42 @@ final class ReferenceDate {
 	public const SOURCE_CREATED = 'created';
 	public const SOURCE_UPLOAD = 'upload';
 	public const SOURCE_MTIME = 'mtime';
-	/** „zuerst gesehen“ – von der App vermerkt, weil Nextcloud keine Upload-Zeit kennt */
+	/** "first seen" – recorded by the app because Nextcloud knows no upload time */
 	public const SOURCE_SEEN = 'seen';
-	/** aus dem Papierkorb zurückgeholt: Zeitpunkt der letzten echten Löschung durch die App */
+	/** restored from the trash bin: time of the last real deletion by the app */
 	public const SOURCE_RESTORED = 'restored';
 
 	public function __construct(
 		public readonly int $timestamp,
-		/** self::SOURCE_* – welches Feld tatsächlich verwendet wurde */
+		/** self::SOURCE_* – which field was actually used */
 		public readonly string $source,
 	) {
 	}
 
 	/**
-	 * Bezugsdatum aus den Filecache-Feldern.
+	 * Reference date from the file cache fields.
 	 *
-	 * basis=created heißt „seit Ablage in Nextcloud“: max(upload_time, creation_time).
-	 *   creation_time allein taugt nicht – das ist die Erstellzeit, die der Client meldet
-	 *   (X-OC-CTime), bei einem Sync alter Dateien also Jahre zurück. Fehlt upload_time
-	 *   (occ files:scan, Altbestand, serverseitig angelegt), gilt das von der App vermerkte
-	 *   „zuerst gesehen“-Datum; ohne das gibt es kein Bezugsdatum. Kein Rückfall auf mtime.
-	 *   Kopien erben upload_time und creation_time des Originals (Cache::copyFromCache) – eine
-	 *   heute angelegte Kopie sähe sonst „vor Jahren abgelegt“ aus. Darum zählt „zuerst gesehen“
-	 *   auch neben upload_time mit, wenn $isNew: Die Datei-ID liegt über der beim Update bzw. bei
-	 *   der Installation gemerkten höchsten ID (Settings::seenMaxFileId) – Kopien bekommen immer
-	 *   eine neue ID. Dateien bis zu dieser ID sind Bestand: für sie gilt die Upload-Zeit.
+	 * basis=created means "since stored in Nextcloud": max(upload_time, creation_time).
+	 *   creation_time alone is not suitable – it is the creation time reported by the client
+	 *   (X-OC-CTime), i.e. years back when old files are synced. If upload_time is missing
+	 *   (occ files:scan, legacy files, created server-side), the "first seen" date recorded
+	 *   by the app applies; without it there is no reference date. No fallback to mtime.
+	 *   Copies inherit upload_time and creation_time from the original (Cache::copyFromCache) – a
+	 *   copy created today would otherwise look "stored years ago". That's why "first seen" also
+	 *   counts alongside upload_time when $isNew: the file ID is above the highest ID remembered at
+	 *   the update or install (Settings::seenMaxFileId) – copies always get
+	 *   a new ID. Files up to that ID are existing files: for them the upload time applies.
 	 * basis=modified: mtime.
 	 *
-	 * Alle Werte werden auf <= $now gekappt (Zukunftswerte würden sonst nie bzw. falsch fällig).
-	 * Wurde die Datei schon einmal von der App gelöscht und danach wiederhergestellt, zählt die
-	 * Frist ab der Wiederherstellung: RetentionRunner::enrich setzt „zuerst gesehen“ beim ersten
-	 * Sehen nach der Löschung neu – liegt first_seen nach der Löschung, gilt first_seen (auch
-	 * neben upload_time und unabhängig von $isNew). Ohne das zählt frühestens die Löschung –
-	 * kam die Wiederherstellung später als eine Frist danach, wäre die Datei sonst sofort wieder weg.
+	 * All values are capped to <= $now (future values would otherwise never become due, or at the wrong time).
+	 * If the file was already deleted by the app once and restored afterwards, the retention period
+	 * counts from the restore: RetentionRunner::enrich resets "first seen" on the first
+	 * sighting after the deletion – if first_seen is after the deletion, first_seen applies (also
+	 * alongside upload_time and regardless of $isNew). Without that, the deletion counts at the earliest –
+	 * if the restore came more than one retention period after it, the file would otherwise be gone again immediately.
 	 *
-	 * Werte <= 0 oder null gelten als „nicht gesetzt“. Liefert null, wenn kein Wert
-	 * brauchbar ist – solche Dateien werden nie gelöscht.
+	 * Values <= 0 or null count as "not set". Returns null if no value
+	 * is usable – such files are never deleted.
 	 */
 	public static function fromFileCache(Basis $basis, ?int $creationTime, ?int $uploadTime, ?int $mtime, ?int $firstSeen, ?int $lastDeleted, int $now, bool $isNew = false): ?self {
 		$set = static fn (?int $v): bool => $v !== null && $v > 0;

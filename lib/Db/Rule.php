@@ -37,7 +37,7 @@ use OCP\IL10N;
  * @method void setTarget(?string $target)
  */
 class Rule extends Entity implements JsonSerializable {
-	/** Wert von „target“ für die Standardregel persönlicher Ordner */
+	/** Value of "target" for the default rule of personal folders */
 	public const TARGET_PERSONAL = 'personal';
 
 	protected $folderId;
@@ -94,7 +94,7 @@ class Rule extends Entity implements JsonSerializable {
 		return [
 			'id' => $this->id,
 			'folderId' => $this->folderId === null ? null : (int)$this->folderId,
-			// isDefault = allgemeine Standardregel, isPersonalDefault = Standard für persönliche Ordner
+			// isDefault = general default rule, isPersonalDefault = default for personal folders
 			'isDefault' => $this->folderId === null && !$this->isPersonalDefault(),
 			'isPersonalDefault' => $this->isPersonalDefault(),
 			'periodValue' => $this->periodValue === null ? null : (int)$this->periodValue,

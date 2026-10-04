@@ -28,15 +28,15 @@ use OCP\IUserManager;
 use OCP\IUserSession;
 
 /**
- * Admin-API. Keine #[NoAdminRequired]-Attribute → nur Administratoren.
- * Pfade relativ zu /apps/folder_retention.
+ * Admin API. No #[NoAdminRequired] attributes → administrators only.
+ * Paths relative to /apps/folder_retention.
  */
 class ApiController extends Controller {
 	private const PREVIEW_LIMIT = 500;
 	private const PREVIEW_BUDGET = 20.0;
-	/** längster Zeitraum für /api/log/folders */
+	/** longest time span for /api/log/folders */
 	private const LOG_FOLDERS_SPAN = 31 * 86400;
-	/** Pfadwert für die Standardregel persönlicher Ordner */
+	/** path value for the default rule of personal folders */
 	private const PERSONAL = 'personal';
 
 	public function __construct(
@@ -59,16 +59,16 @@ class ApiController extends Controller {
 
 	#[FrontpageRoute(verb: 'GET', url: '/api/rules')]
 	public function listRules(): JSONResponse {
-		// Mit Anzeigepfad; path = null heißt: Ordner existiert nicht mehr (Regel verwaist, wirkungslos)
+		// with display path; path = null means: folder no longer exists (rule orphaned, has no effect)
 		return new JSONResponse(array_map(fn ($rule) => $rule->toArray($this->l) + [
 			'path' => $rule->getFolderId() === null ? null : $this->tree->displayPath((int)$rule->getFolderId()),
 		], $this->rules->list()));
 	}
 
 	/**
-	 * Eine kürzere Frist löscht ab der nächsten Nacht – daher Passwortbestätigung wie beim Simulationsschalter.
+	 * A shorter retention period deletes starting the next night – hence password confirmation, as for the simulation switch.
 	 *
-	 * @param string $folderId Ordner-ID, "default" oder "personal" (Standardregel persönlicher Ordner)
+	 * @param string $folderId folder ID, "default" or "personal" (default rule for personal folders)
 	 */
 	#[PasswordConfirmationRequired]
 	#[FrontpageRoute(verb: 'PUT', url: '/api/rules/{folderId}')]
@@ -99,7 +99,7 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * Ohne eigene Regel erbt der Ordner – womöglich eine kürzere Frist. Daher Passwortbestätigung.
+	 * Without its own rule the folder inherits – possibly a shorter retention period. Hence password confirmation.
 	 */
 	#[PasswordConfirmationRequired]
 	#[FrontpageRoute(verb: 'DELETE', url: '/api/rules/{folderId}')]
@@ -119,7 +119,7 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * Ohne parent: Bereichswurzeln. Mit parent: dessen Unterordner.
+	 * Without parent: scope roots. With parent: its subfolders.
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/tree')]
 	public function tree(?int $parent = null): JSONResponse {
@@ -152,7 +152,7 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * @param string $folderId Ordner-ID, "default" oder "personal" (= alle Dateien unter der jeweiligen Standardregel)
+	 * @param string $folderId folder ID, "default" or "personal" (= all files under the respective default rule)
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/preview')]
 	public function preview(string $folderId = 'default', int $days = 7): JSONResponse {
@@ -181,8 +181,8 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * Übersicht: Tage mit Einträgen (neueste zuerst) samt Zahlen je Statusgruppe.
-	 * Gleiche Filter wie /api/log außer folder.
+	 * Overview: days with entries (newest first) including counts per status group.
+	 * Same filters as /api/log except folder.
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/log/days')]
 	public function logDays(int $limit = 10, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): JSONResponse {
@@ -195,10 +195,10 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * Übersicht: Ordner mit Einträgen samt Zahlen für einen Zeitraum, meist einen Tag.
-	 * from und to sind Pflicht und höchstens LOG_FOLDERS_SPAN auseinander – die Zählung liest
-	 * jede passende Zeile, ohne Grenze wäre das das ganze Protokoll.
-	 * Die Dateien eines Ordners liefert /api/log mit folder=<Ordner>.
+	 * Overview: folders with entries including counts for a time span, usually one day.
+	 * from and to are required and at most LOG_FOLDERS_SPAN apart – the count reads
+	 * every matching row; without a limit that would be the entire log.
+	 * The files of a folder are returned by /api/log with folder=<folder>.
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/log/folders')]
 	public function logFolders(?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): JSONResponse {
@@ -209,8 +209,8 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * Protokoll als CSV (Semikolon, UTF-8 mit BOM – öffnet in Excel direkt richtig).
-	 * Gleiche Filter wie /api/log außer folder.
+	 * Log as CSV (semicolon, UTF-8 with BOM – opens correctly in Excel right away).
+	 * Same filters as /api/log except folder.
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/log/export')]
 	public function exportLog(?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): DataDownloadResponse {
@@ -228,7 +228,7 @@ class ApiController extends Controller {
 			'error' => $l->t('error'),
 			'deleted_final' => $l->t('permanently deleted (trash bin bypassed)'),
 		];
-		// Zellen, die Excel als Formel läse (Dateinamen wie „=HYPERLINK(…)“), mit ' entschärfen
+		// defuse cells that Excel would read as a formula (file names like "=HYPERLINK(…)") with '
 		$cell = fn ($v) => is_string($v) && $v !== '' && str_contains("=+-@\t\r", $v[0]) ? "'" . $v : $v;
 		foreach ($this->logMapper->iterate($this->logFilter($mode, $status, $search, $from, $to)) as $e) {
 			fputcsv($out, array_map($cell, [
@@ -252,7 +252,7 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * folder: null = alle Ordner, '' = Pfade ohne Ordner (Abfrageparameter „folder=“)
+	 * folder: null = all folders, '' = paths without a folder (query parameter "folder=")
 	 *
 	 * @return array{mode: ?string, status: ?string, search: ?string, from: ?int, to: ?int, folder?: string}
 	 */
@@ -273,9 +273,9 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * Simulationsmodus ausschalten löst echte Löschungen aus – daher Passwortbestätigung.
-	 * unblock = Liste angezeigter Sperren ({key, at} oder nur der Schlüssel): hebt genau diese auf,
-	 * alle anderen bleiben – auch solche, die seit dem Laden der Seite hinzugekommen sind.
+	 * Switching off simulation mode triggers real deletions – hence password confirmation.
+	 * unblock = list of displayed blocks ({key, at} or just the key): lifts exactly these,
+	 * all others stay – including ones added since the page was loaded.
 	 */
 	#[PasswordConfirmationRequired]
 	#[FrontpageRoute(verb: 'PUT', url: '/api/settings')]
@@ -305,8 +305,8 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * Konto als Arbeitsbereich markieren (Standardregel gilt) oder wieder als persönlich behandeln.
-	 * Kann Löschungen auslösen – daher Passwortbestätigung.
+	 * Mark an account as a workspace account (default rule applies) or treat it as personal again.
+	 * Can trigger deletions – hence password confirmation.
 	 */
 	#[PasswordConfirmationRequired]
 	#[FrontpageRoute(verb: 'PUT', url: '/api/accounts/{uid}/workspace')]
@@ -323,7 +323,7 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * @return array<string, ?int>|null Schlüssel → angezeigter Zeitpunkt; null = ungültig
+	 * @return array<string, ?int>|null key → displayed timestamp; null = invalid
 	 */
 	private function parseUnblock(mixed $unblock): ?array {
 		if (!is_array($unblock) || !array_is_list($unblock)) {
@@ -346,7 +346,7 @@ class ApiController extends Controller {
 		return $keys;
 	}
 
-	/** Tags des betroffenen Unterbaums im Hintergrund nachziehen (null = alles) */
+	/** Update the tags of the affected subtree in the background (null = everything) */
 	private function queueTagSync(?int $folderId): void {
 		if ($this->settings->tagsEnabled()) {
 			$this->jobList->add(TagSyncJob::class, ['folderId' => $folderId]);
@@ -366,14 +366,14 @@ class ApiController extends Controller {
 			'lastCycleCompleted' => $this->settings->lastCycleCompleted() ?: null,
 			'cycleInProgress' => $this->settings->getCursor() !== null,
 			'timezone' => $this->settings->timezone()->getName(),
-			// cron = System-Cron; ajax/webcron: die App löscht nicht (siehe RetentionRunner::runScheduled)
+			// cron = system cron; ajax/webcron: the app does not delete (see RetentionRunner::runScheduled)
 			'cronMode' => $this->settings->backgroundJobsMode(),
-			// Bereiche, in denen nach einer endgültigen Löschung nichts mehr gelöscht wird
+			// scopes in which nothing more is deleted after a permanent deletion
 			'blockedRoots' => $blocked,
 		];
 	}
 
-	/** @return int|null|false null = Standardregel, false = ungültig */
+	/** @return int|null|false null = default rule, false = invalid */
 	private function parseFolderId(string $folderId): int|null|false {
 		if ($folderId === 'default') {
 			return null;

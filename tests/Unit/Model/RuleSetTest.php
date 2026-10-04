@@ -60,7 +60,7 @@ class RuleSetTest extends TestCase {
 	}
 
 	public function testPersonalNeverExcludesPersonalFiles(): void {
-		// Standard ab 0.8.0: persönlich „Nie“ – Ordnerregeln greifen trotzdem
+		// Default since 0.8.0: personal "Never" – folder rules still apply
 		$set = new RuleSet(
 			new RetentionRule(1, null, Period::of(1, PeriodUnit::Month), null),
 			[50 => new RetentionRule(3, 50, Period::of(1, PeriodUnit::Day), Scope::Inherit)],
@@ -80,7 +80,7 @@ class RuleSetTest extends TestCase {
 	}
 
 	public function testWithoutPersonalRuleHomeFallsBackToExcluded(): void {
-		// Ohne persönliche Standardregel (Altstand) bleibt der Pfad „persönlich ausgenommen“ erreichbar
+		// Without a personal default rule (legacy state) the "personal excluded" path stays reachable
 		$set = new RuleSet(new RetentionRule(1, null, Period::of(1, PeriodUnit::Day), null), []);
 		$rs = $set->forRoot($this->root(RetentionRoot::KIND_HOME));
 		$this->assertSame($set, $rs);

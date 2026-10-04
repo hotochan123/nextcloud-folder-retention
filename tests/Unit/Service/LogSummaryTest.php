@@ -12,11 +12,11 @@ use OCA\FolderRetention\Service\Settings;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Tages- und Ordnerübersicht des Protokolls: Tage in der Zeitzone der Instanz, Ordner = direkter
- * Elternordner, Status in den Gruppen des Statusfilters.
+ * Per-day and per-folder summary of the log: days in the instance time zone, folder = direct
+ * parent folder, status grouped as in the status filter.
  */
 class LogSummaryTest extends TestCase {
-	/** @var list<array{path: string, status: string, deleted_at: int}> neueste zuerst wie iterateSummary() */
+	/** @var list<array{path: string, status: string, deleted_at: int}> newest first, like iterateSummary() */
 	private array $rows = [];
 	/** @var list<array<string, mixed>> */
 	private array $filters = [];
@@ -40,7 +40,7 @@ class LogSummaryTest extends TestCase {
 		$this->rows = [
 			$this->row('A/x.pdf', 'would_delete', '2026-10-04 02:06'),
 			$this->row('A/y.pdf', 'skipped_locked', '2026-10-04 00:30'),
-			// 23:30 UTC am 2.10. ist in Berlin schon der 3.10.
+			// 23:30 UTC on 2.10. is already 3.10. in Berlin
 			$this->row('B/z.pdf', 'deleted', '2026-10-02 23:30', 'UTC'),
 			$this->row('B/w.pdf', 'deleted_final', '2026-10-02 22:00', 'UTC'),
 		];
@@ -53,7 +53,7 @@ class LogSummaryTest extends TestCase {
 	}
 
 	public function testDayBoundsCoverTheLocalDayIncludingDaylightSavingChange(): void {
-		// 25.10.2026: Ende der Sommerzeit in Berlin, der Tag hat 25 Stunden
+		// 25.10.2026: end of daylight saving time in Berlin, the day has 25 hours
 		$this->rows = [$this->row('A/x.pdf', 'would_delete', '2026-10-25 12:00')];
 		$day = $this->summary()->days([], 10, 0)['days'][0];
 		$this->assertSame((new DateTimeImmutable('2026-10-25 00:00', new DateTimeZone('Europe/Berlin')))->getTimestamp(), $day['from']);

@@ -11,7 +11,7 @@ use OCA\FolderRetention\Model\RuleSet;
 use OCP\IL10N;
 
 /**
- * Ordnerbaum für die Admin-Oberfläche: nur Ordner, lazy, jeweils mit effektiver Regel und Quelle.
+ * Folder tree for the admin UI: folders only, lazy, each with its effective rule and source.
  */
 class TreeService {
 	public function __construct(
@@ -24,7 +24,7 @@ class TreeService {
 	) {
 	}
 
-	/** @return list<array<string, mixed>> Bereichswurzeln (Team-Ordner und Arbeitsbereiche zuerst, dann persönliche) */
+	/** @return list<array<string, mixed>> scope roots (team folders and workspaces first, then personal ones) */
 	public function roots(): array {
 		$ruleSet = $this->rules->snapshot();
 		$ruleEntities = $this->ruleEntities();
@@ -37,7 +37,7 @@ class TreeService {
 		return $nodes;
 	}
 
-	/** @return list<array<string, mixed>>|null null = Ordner unbekannt/außerhalb der Bereiche */
+	/** @return list<array<string, mixed>>|null null = folder unknown/outside the scopes */
 	public function children(int $parentId): ?array {
 		$located = $this->roots->locate($parentId);
 		if ($located === null) {
@@ -55,7 +55,7 @@ class TreeService {
 		return $nodes;
 	}
 
-	/** Anzeigepfad eines Ordners, z. B. „SVZ Workspace - Academy/Archiv“; null = verwaist */
+	/** Display path of a folder, e.g. "SVZ Workspace - Academy/Archiv"; null = orphaned */
 	public function displayPath(int $folderId): ?string {
 		$located = $this->roots->locate($folderId);
 		$entry = $this->fileCache->getEntry($folderId);
@@ -63,8 +63,8 @@ class TreeService {
 	}
 
 	/**
-	 * Kompletter Ordner-Teilbaum als flache Liste (für „Alle aufklappen“ und die clientseitige
-	 * Live-Auflösung ungespeicherter Änderungen).
+	 * Complete folder subtree as a flat list (for "expand all" and the client-side
+	 * live resolution of unsaved changes).
 	 *
 	 * @return array{nodes: list<array<string, mixed>>, truncated: bool}|null
 	 */
@@ -98,8 +98,8 @@ class TreeService {
 	}
 
 	/**
-	 * Wirkung einer Ordnerregel auf den Teilbaum: wie viele Unterordner übernehmen sie,
-	 * welche Unterordner haben abweichende eigene Regeln.
+	 * Effect of a folder rule on the subtree: how many subfolders inherit it,
+	 * which subfolders have differing rules of their own.
 	 *
 	 * @return array<string, mixed>|null
 	 */
@@ -151,7 +151,7 @@ class TreeService {
 	}
 
 	/**
-	 * @param list<int> $chain [dieser Ordner, Eltern, …, Bereichswurzel]
+	 * @param list<int> $chain [this folder, parent, …, scope root]
 	 * @param array<int, Rule> $ruleEntities
 	 */
 	private function node(RetentionRoot $root, int $id, string $name, string $path, ?int $parentId, int $childFolders, array $chain, RuleSet $ruleSet, array $ruleEntities): array {
@@ -162,7 +162,7 @@ class TreeService {
 			'path' => $root->displayPath($path),
 			'kind' => $root->kind,
 			'isRoot' => $id === $root->rootId,
-			// Konto hinter einem persönlichen bzw. Arbeitsbereich (nur an der Wurzel, für den Umschalter)
+			// account behind a personal or workspace scope (only at the root, for the toggle)
 			'accountId' => $id === $root->rootId && $root->isAccount() ? ($root->userIds[0] ?? null) : null,
 			'hasChildren' => $childFolders > 0,
 			'childCount' => $childFolders,

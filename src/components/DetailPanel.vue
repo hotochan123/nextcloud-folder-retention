@@ -22,7 +22,7 @@
 			</p>
 		</div>
 
-		<!-- Konto: persönlich oder Arbeitsbereich -->
+		<!-- Account: personal or workspace -->
 		<div v-if="node?.isRoot && node.accountId" class="fr-account">
 			<NcCheckboxRadioSwitch type="switch"
 				:model-value="node.kind === 'workspace'"
@@ -41,7 +41,7 @@
 			</p>
 		</div>
 
-		<!-- Regel für diesen Ordner -->
+		<!-- Rule for this folder -->
 		<fieldset class="fr-group">
 			<legend>{{ ruleLegend }}</legend>
 			<div class="fr-toggles" role="group" :aria-label="ruleLegend">
@@ -84,7 +84,7 @@
 			</div>
 		</fieldset>
 
-		<!-- Gilt für -->
+		<!-- Applies to -->
 		<fieldset v-if="own && !isDefault && hasChildren" class="fr-group">
 			<legend>{{ t('folder_retention', 'Applies to') }}</legend>
 			<div class="fr-toggles" role="group" :aria-label="t('folder_retention', 'Applies to')">
@@ -112,8 +112,8 @@
 			<ul>
 				<li v-for="o in overrides" :key="o.key">
 					<button type="button" class="fr-link" @click="select(o.key)">
-						<!-- Umbruch bevorzugt nach „/“, nicht mitten im Ordnernamen -->
-						<!-- eine Zeile: Zeilenumbrüche im Template würden als Leerzeichen gerendert -->
+						<!-- Prefer breaking after "/", not in the middle of a folder name -->
+						<!-- one line: line breaks in the template would be rendered as spaces -->
 						<template v-for="(part, i) in o.path.split('/')" :key="i">{{ i > 0 ? '/' : '' }}<wbr v-if="i > 0">{{ part }}</template>
 					</button>
 					<RuleBadge :eff="o.eff" />
@@ -122,7 +122,7 @@
 			</ul>
 		</div>
 
-		<!-- Frist zählt ab -->
+		<!-- Period counts from -->
 		<fieldset v-if="own && !neverOwn" class="fr-group">
 			<legend>{{ t('folder_retention', 'Period counts from') }}</legend>
 			<div class="fr-toggles" role="group" :aria-label="t('folder_retention', 'Period counts from')">
@@ -201,7 +201,7 @@ const PRESETS = [
 	{ id: 'never', unit: 'never' },
 ]
 
-/** „Erben“, „1 Tag“, … „Nie löschen“ */
+/** "Inherit", "1 day", … "Never delete" */
 function presetLabel(p) {
 	return p.id === 'inherit'
 		? t('folder_retention', 'Inherit')
@@ -209,7 +209,7 @@ function presetLabel(p) {
 }
 
 const key = computed(() => state.selected)
-/** eine der beiden Standardregeln (allgemein oder persönliche Ordner) */
+/** one of the two default rules (general or personal folders) */
 const isDefault = computed(() => isDefaultKey(key.value))
 const isPersonalDefault = computed(() => key.value === PERSONAL_KEY)
 const node = computed(() => isDefault.value ? null : state.nodes[key.value])
@@ -239,7 +239,7 @@ const subtitle = computed(() => {
 
 const tone = computed(() => isNever(eff.value.rule) ? 'keep' : 'delete')
 
-/** „Geerbt von der Standardregel.“ / „… für persönliche Ordner.“ / „Geerbt von „Ordner“.“ */
+/** "Inherited from the default rule." / "… for personal folders." / "Inherited from "Folder"." */
 function inheritedFrom(e) {
 	if (e.isDefault) {
 		return e.isPersonal
@@ -261,7 +261,7 @@ const pressed = computed(() => {
 	return match ? match.id : 'custom'
 })
 
-// Freie Eingabe folgt der aktuellen Regel
+// Custom input follows the current rule
 const customValue = ref(1)
 const customUnit = ref('month')
 watch(own, (r) => {
@@ -272,7 +272,7 @@ watch(own, (r) => {
 }, { immediate: true })
 const customInvalid = computed(() => !Number.isInteger(customValue.value) || customValue.value < 1 || customValue.value > 3650)
 
-/** Ausgangswerte für eine neue eigene Regel: vom bisher geltenden übernehmen */
+/** Initial values for a new own rule: taken over from what applied so far */
 function baseRule() {
 	return own.value ?? {
 		scope: 'inherit',
@@ -306,14 +306,14 @@ function select(k) {
 	state.selected = k
 }
 
-// Teilbaum laden, damit Zählung und Ausnahmen live berechnet werden können
+// Load the subtree so that counts and exceptions can be computed live
 watch(key, async (k) => {
 	previewOpen.value = false
 	if (!isDefaultKey(k) && (state.nodes[k]?.childCount ?? 0) > 0) {
 		try {
 			await loadSubtree(k)
 		} catch (e) {
-			// Zählung entfällt dann – kein Abbruch der Bearbeitung
+			// the count is then omitted – editing is not aborted
 		}
 	}
 }, { immediate: true })
@@ -350,7 +350,7 @@ const impactLine = computed(() => {
 })
 
 const overrides = computed(() => {
-	// Bei den Standardregeln: alle Ordnerregeln des jeweiligen Bereichs (persönlich bzw. übrige)
+	// For the default rules: all folder rules of the respective area (personal or the rest)
 	const keys = isDefault.value
 		? [...new Set([...Object.keys(state.saved), ...Object.keys(state.drafts)])]
 			.filter(k => !isDefaultKey(k))
@@ -377,7 +377,7 @@ async function onWorkspace(value) {
 		await setWorkspace(node.value.accountId, value)
 		showSuccess(value ? t('folder_retention', 'Account is treated as a workspace') : t('folder_retention', 'Account is treated as personal again'))
 	} catch (e) {
-		// Abbruch der Passwortbestätigung ist kein Fehler
+		// Cancelling the password confirmation is not an error
 		if (e?.response) {
 			showError(e.response.data?.message ?? t('folder_retention', 'Setting could not be saved'))
 		}
@@ -386,7 +386,7 @@ async function onWorkspace(value) {
 	}
 }
 
-/** Fehler des letzten Speicherversuchs – bleibt sichtbar, bis erneut gespeichert oder gewechselt wird */
+/** Error of the last save attempt – stays visible until saving again or switching */
 const saveError = ref(null)
 watch([key, dirty], () => {
 	saveError.value = null
@@ -399,7 +399,7 @@ async function onSave() {
 		showSuccess(t('folder_retention', 'Rule saved'))
 	} catch (e) {
 		if (e?.cancelled) {
-			return // Passwortdialog geschlossen – Entwurf bleibt
+			return // password dialog closed – draft is kept
 		}
 		const status = e?.response?.status
 		saveError.value = e?.response?.data?.message

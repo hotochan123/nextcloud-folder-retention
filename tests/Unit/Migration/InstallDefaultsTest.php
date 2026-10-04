@@ -15,16 +15,16 @@ use OCP\Migration\IOutput;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Grenze Bestand/neu beim Update: Vom frühen 0.8.0-Stand (seen_since = Zeitpunkt) wird sie aus
- * „zuerst gesehen“ abgeleitet, nicht aus der höchsten Datei-ID beim Update – sonst zählten Kopien
- * aus der 0.8.0-Zeit als Bestand und wären sofort fällig (Harness S24).
+ * Existing/new boundary on update: from the early 0.8.0 state (seen_since = point in time) it is derived from
+ * "first seen", not from the highest file ID at update time – otherwise copies
+ * from the 0.8.0 era would count as existing and be due immediately (harness S24).
  */
 class InstallDefaultsTest extends TestCase {
 	private ?int $mark = null;
 	private ?int $legacy = null;
 	private ?int $lastSeen = null;
 	private int $maxFileId = 500;
-	/** @var list<string> Aufrufe in Reihenfolge */
+	/** @var list<string> calls in order */
 	private array $calls = [];
 	/** @var list<string> language vs. default rules */
 	private array $order = [];

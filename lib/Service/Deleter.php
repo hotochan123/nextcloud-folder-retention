@@ -25,95 +25,95 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
- * Verschiebt eine Datei in den Papierkorb (files_trashbin bzw. Team-Ordner-Papierkorb).
- * Endgültiges Löschen ist nie gewollt: Ohne nachweislich passenden Papierkorb wird abgelehnt,
- * und nach dem Löschen wird nachgesehen, ob die Datei dort angekommen ist.
+ * Moves a file to the trash bin (files_trashbin or the team folder trash bin).
+ * Permanent deletion is never intended: without a trash bin that demonstrably fits, deletion is
+ * refused, and after deleting we check whether the file actually arrived there.
  *
- * Warum der Aufwand: files_trashbin legt die Datei über Filesystem::getView() ab – das ist
- * die Sicht des Kontos, für das das Dateisystem zuerst eingerichtet wurde. Passt sie nicht
- * zur Datei, schlägt das Verschieben fehl, und der Speicher-Wrapper löscht STILL endgültig
- * (files_trashbin/lib/Storage.php, doDelete). Dasselbe passiert, wenn der Papierkorb für den
- * angemeldeten Benutzer nicht aktiv ist – im Cron gibt es keinen, bei auf Gruppen beschränktem
- * files_trashbin also immer –, bei Dateien über der Papierkorb-Höchstgröße und bei *.part.
- * Deshalb: Dateisystem und aktiven Benutzer auf genau das Konto umstellen, dem die Datei gehört.
+ * Why the effort: files_trashbin stores the file via Filesystem::getView() – that is the view of
+ * the account for which the filesystem was set up first. If it does not match the file, the move
+ * fails and the storage wrapper SILENTLY deletes permanently (files_trashbin/lib/Storage.php,
+ * doDelete). The same happens when the trash bin is not enabled for the logged-in user – in cron
+ * there is none, so always when files_trashbin is restricted to groups –, for files above the
+ * maximum trash bin size, and for *.part.
+ * Therefore: switch the filesystem and the active user to exactly the account that owns the file.
  *
- * Folge davon: Nextcloud hält dieses Konto für den Löschenden – Papierkorb („Gelöscht von“ im
- * Team-Ordner), Aktivität und admin_audit nennen den Besitzer bzw. ein Team-Ordner-Mitglied.
- * Damit sich das der App zuordnen lässt, steht das Konto im Protokolleintrag („über Konto …“),
- * und bei Team-Ordnern ist es stabil das erste geeignete Mitglied in sortierter Reihenfolge.
+ * Consequence: Nextcloud considers this account the deleting user – trash bin ("Deleted by" in the
+ * team folder), activity and admin_audit name the owner or a team folder member.
+ * So this can be attributed to the app, the account is stated in the log entry ("via account ..."),
+ * and for team folders it is consistently the first suitable member in sorted order.
  *
- * Zwei weitere Wege am Papierkorb vorbei:
- * - Räumung wegen Platz: files_trashbin räumt nach dem Verschieben (Expire-Job) so lange
- *   Einträge endgültig ab, bis trashbin_size bzw. 50 % des freien Quota-Platzes wieder reichen;
- *   groupfolders leert den Team-Ordner-Papierkorb, sobald Inhalt + Papierkorb die Quota
- *   übersteigen. Vorher nachrechnen, die Verschiebungen dieses Laufs und die mitwandernden
- *   Versionen (files_trashbin/versions) eingerechnet.
- * - Ausnahme im Papierkorb-Backend: TrashManager::moveToTrash setzt dann trashPaused nicht
- *   zurück, und JEDE weitere Löschung im selben Prozess ginge endgültig. Daher vor jedem
- *   Versuch resumeTrash(), und nach einer Ausnahme beim Löschen für den Rest des Laufs nichts mehr.
- *   Auch nach der Ausnahme und beim Aufräumen resumeTrash(): cron.php arbeitet im selben Prozess
- *   weitere Jobs ab, deren Löschungen sonst ebenfalls endgültig wären.
- *   Außerdem merkt sich LegacyTrashBackend den Pfad (deletedFiles) und räumt ihn nach einer
- *   Ausnahme nicht ab – ein späterer Versuch am selben Pfad liefert sofort false, und
- *   files_trashbin löscht endgültig. Ein langlebiger Prozess (occ background-job:worker) führt
- *   den RetentionJob mehrfach aus: Diese Pfade bleiben daher für den Rest des Prozesses gesperrt.
- * - Gleicher Name in derselben Sekunde: files_trashbin und groupfolders nennen den Eintrag
- *   „<name>.d<time()>“ und überschreiben ein vorhandenes Ziel (samt Versionen) endgültig. Daher
- *   je Papierkorb und Name warten, bis eine neue Sekunde angebrochen ist – nach den Löschungen
- *   dieses Laufs und nach dem Filecache (Einträge eines eben beendeten anderen Laufs) –, und nach
- *   jeder Löschung nachsehen, ob die gleichnamigen Einträge dieses Laufs aus derselben Sekunde
- *   noch da sind. „Gleichnamig“ wie im
- *   Papierkorb: files_trashbin kürzt lange Namen in der Mitte (trashNameKeys).
- *   Auch ein Nutzer kann in derselben Sekunde eine gleichnamige Datei löschen und den Eintrag
- *   der App überschreiben (Trashbin::move2trash: Namenssperre schon frei, dann unlink). Das fällt
- *   nur auf, wenn die App später noch einmal nachsieht – daher am Laufende verifyRecentTrash().
- * - Kopfzeile „X-NC-Skip-Trashbin: true“: files_trashbin löscht dann am Papierkorb vorbei. Im
- *   Web-Cron (AJAX/Webcron) läuft der Job in einer anonymen Anfrage an cron.php – jeder könnte die
- *   Kopfzeile setzen. Daher nur im CLI-Kontext (System-Cron, occ) löschen.
+ * Further ways past the trash bin:
+ * - Purging for space: after the move, files_trashbin (expire job) permanently purges entries
+ *   until trashbin_size or 50 % of the free quota space suffices again; groupfolders empties the
+ *   team folder trash bin as soon as content + trash bin exceed the quota. Calculate this
+ *   beforehand, including this run's moves and the versions that move along
+ *   (files_trashbin/versions).
+ * - Exception in the trash bin backend: TrashManager::moveToTrash then does not reset trashPaused,
+ *   and EVERY further deletion in the same process would be permanent. Hence resumeTrash() before
+ *   every attempt, and after an exception while deleting, nothing more for the rest of the run.
+ *   Also resumeTrash() after the exception and during cleanup: cron.php processes further jobs in
+ *   the same process, whose deletions would otherwise be permanent too.
+ *   In addition, LegacyTrashBackend remembers the path (deletedFiles) and does not clear it after
+ *   an exception – a later attempt at the same path immediately returns false, and files_trashbin
+ *   deletes permanently. A long-lived process (occ background-job:worker) runs the RetentionJob
+ *   multiple times: these paths therefore stay blocked for the rest of the process.
+ * - Same name in the same second: files_trashbin and groupfolders name the entry
+ *   "<name>.d<time()>" and permanently overwrite an existing target (including versions). Hence,
+ *   per trash bin and name, wait until a new second has begun – based on this run's deletions and
+ *   on the file cache (entries of another run that just finished) –, and after every deletion
+ *   check whether this run's same-named entries from the same second are still there.
+ *   "Same-named" as in the
+ *   trash bin: files_trashbin shortens long names in the middle (trashNameKeys).
+ *   A user can also delete a same-named file in the same second and overwrite the app's entry
+ *   (Trashbin::move2trash: name lock already released, then unlink). This is only noticed if the
+ *   app checks again later – hence verifyRecentTrash() at the end of the run.
+ * - Header "X-NC-Skip-Trashbin: true": files_trashbin then deletes bypassing the trash bin. In
+ *   web cron (AJAX/Webcron) the job runs in an anonymous request to cron.php – anyone could set
+ *   the header. Therefore only delete in CLI context (system cron, occ).
  */
 class Deleter {
-	/** Konto, dessen Dateisystem gerade eingerichtet ist; null = noch nicht umgestellt */
+	/** Account whose filesystem is currently set up; null = not switched yet */
 	private ?string $contextUid = null;
 	private bool $switched = false;
 	private ?IUser $previousUser = null;
-	/** @var array<string, string> uid → Grund, warum sein Kontext in diesem Lauf nicht nutzbar ist */
+	/** @var array<string, string> uid → reason why its context is not usable in this run */
 	private array $contextFailed = [];
-	/** gesetzt = Papierkorb hat in diesem Lauf eine Ausnahme geworfen, nichts mehr löschen */
+	/** set = the trash bin threw an exception in this run, delete nothing more */
 	private ?string $halted = null;
 	/**
-	 * Prozessweit, übersteht releaseContext(): „Speicher:Pfad“ der Dateien, bei deren Löschen eine
-	 * Ausnahme flog – der Papierkorb hält sie womöglich für schon verschoben (LegacyTrashBackend).
+	 * Process-wide, survives releaseContext(): "storage:path" of files whose deletion threw an
+	 * exception – the trash bin may consider them already moved (LegacyTrashBackend).
 	 *
 	 * @var array<string, true>
 	 */
 	private static array $unreliablePaths = [];
-	/** @var array<string, int|float> Papierkorb → Größe beim ersten Blick in diesem Lauf */
+	/** @var array<string, int|float> trash bin → size at first look in this run */
 	private array $trashBase = [];
-	/** @var array<string, int|float> Papierkorb → in diesem Lauf hineinverschobene Bytes */
+	/** @var array<string, int|float> trash bin → bytes moved into it in this run */
 	private array $trashAdded = [];
 	/**
-	 * In diesem Lauf in den Papierkorb verschobene Dateien, je Papierkorb und Name
-	 * (Name wie im Papierkorb, klein geschrieben): Sekunde der Löschung und Datei.
+	 * Files moved to the trash bin in this run, per trash bin and name
+	 * (name as in the trash bin, lowercased): second of deletion and file.
 	 *
-	 * verified = als „deleted“ verbucht (nur diese prüft der Sicherheitsgurt nach).
+	 * verified = recorded as "deleted" (only these are re-checked by the safety net).
 	 *
 	 * @var array<string, array<string, list<array{at: int, root: RetentionRoot, file: FileRow, verified: bool}>>>
 	 */
 	private array $trashed = [];
 	/**
-	 * Alle in diesem Lauf als „deleted“ verbuchten Dateien, für verifyRecentTrash (anders als
-	 * $trashed nie vorzeitig ausgedünnt): Datei-ID → Sekunden vor (from) und nach (at) dem Löschen.
+	 * All files recorded as "deleted" in this run, for verifyRecentTrash (unlike $trashed never
+	 * pruned early): file ID → seconds before (from) and after (at) the deletion.
 	 *
 	 * @var array<int, array{from: int, at: int, root: RetentionRoot, file: FileRow}>
 	 */
 	private array $verifiedTrash = [];
-	/** @var list<array{0: RetentionRoot, 1: FileRow, 2: string}> verloren gegangene Papierkorb-Einträge (Bereich, Datei, Grund) */
+	/** @var list<array{0: RetentionRoot, 1: FileRow, 2: string}> lost trash bin entries (area, file, reason) */
 	private array $lost = [];
-	/** @var array<int, true> Datei-IDs, deren Verlust schon gemeldet ist */
+	/** @var array<int, true> file IDs whose loss has already been reported */
 	private array $lostIds = [];
-	/** wurde im aktuellen Versuch File::delete() aufgerufen? */
+	/** was File::delete() called in the current attempt? */
 	private bool $attempted = false;
-	/** Sekunde unmittelbar vor File::delete() im aktuellen Versuch */
+	/** second immediately before File::delete() in the current attempt */
 	private int $attemptAt = 0;
 
 	public function __construct(
@@ -135,7 +135,7 @@ class Deleter {
 	}
 
 	/**
-	 * @return array{0: string, 1: ?string} [LogEntry::STATUS_*, Meldung]
+	 * @return array{0: string, 1: ?string} [LogEntry::STATUS_*, message]
 	 */
 	public function delete(RetentionRoot $root, FileRow $file): array {
 		if ($this->halted !== null) {
@@ -145,12 +145,12 @@ class Deleter {
 			return [LogEntry::STATUS_ERROR, $this->t('Trash bin state of this process is unreliable (earlier exception while deleting at this path) – only after a process restart; not deleted')];
 		}
 		if (str_ends_with(strtolower($file->path), '.part')) {
-			// Nextcloud hält *.part für Upload-Reste und löscht sie am Papierkorb vorbei
+			// Nextcloud treats *.part as upload leftovers and deletes them bypassing the trash bin
 			return [LogEntry::STATUS_ERROR, $this->t('Extension .part – Nextcloud would delete the file permanently, bypassing the trash bin; not deleted')];
 		}
 		if (!$this->isCli()) {
-			// Web-Cron: anonyme Anfrage, X-NC-Skip-Trashbin wäre von außen setzbar, max_execution_time
-			// könnte zwischen Löschen und Protokoll abbrechen
+			// Web cron: anonymous request, X-NC-Skip-Trashbin could be set from outside, max_execution_time
+			// could abort between deleting and logging
 			return [LogEntry::STATUS_ERROR, $this->t('Deleting only with system cron or occ (background jobs run via AJAX/Webcron) – not deleted')];
 		}
 
@@ -158,7 +158,7 @@ class Deleter {
 		$result = $this->attemptDelete($root, $file);
 		if ($this->attempted) {
 			$this->checkEarlierTrashEntries($root, $file, $this->attemptAt);
-			// auch ohne Nachweis merken: Liegt sie doch im Papierkorb, belegt sie den Namen dieser Sekunde
+			// remember it even without proof: if it is in the trash bin after all, it occupies this second's name
 			$this->rememberTrashed($root, $file, $result[0] === LogEntry::STATUS_DELETED);
 		}
 		return $result;
@@ -175,7 +175,7 @@ class Deleter {
 				$lastError = $this->t('Account %s does not exist', [$uid]);
 				continue;
 			}
-			// Versionen wandern beim Löschen mit in den Papierkorb und zählen dort mit
+			// Versions move along into the trash bin on deletion and count there too
 			$versions = $this->versionsSize($root, $user, $file);
 			if ($versions === null) {
 				$lastError = $this->t('Size of versions unknown – space in the trash bin cannot be calculated; not deleted');
@@ -192,8 +192,8 @@ class Deleter {
 				continue;
 			}
 
-			// Erst warten, dann prüfen: Zwischen der letzten Prüfung (Ort, mtime) und dem Löschen
-			// darf keine Wartezeit liegen, in der ein Sync-Client die Datei ersetzen könnte
+			// Wait first, then check: there must be no waiting time between the last check (location,
+			// mtime) and the deletion during which a sync client could replace the file
 			$busy = $this->awaitFreshTrashSecond($root, $file);
 			if ($busy !== null) {
 				return [LogEntry::STATUS_ERROR, $busy];
@@ -210,14 +210,14 @@ class Deleter {
 				if ($node->getMTime() !== $file->mtime) {
 					return [LogEntry::STATUS_SKIPPED_CHANGED, $this->t('File was modified since it was evaluated')];
 				}
-				// getById findet die Datei auch an einem neuen Ort – zwischen Neuprüfung und hier
-				// (Kontowechsel) kann sie verschoben worden sein, mit gleicher ID und mtime
+				// getById also finds the file at a new location – between the re-check and here
+				// (account switch) it may have been moved, with the same ID and mtime
 				$entry = $this->fileCache->getEntry($file->fileId);
 				if ($entry === null || $entry['storage'] !== $file->storageId || $entry['path'] !== $file->path) {
 					return [LogEntry::STATUS_SKIPPED_CHANGED, $this->t('File was moved since it was evaluated')];
 				}
-				// Ohne Löschrecht (Gruppenrechte, ACL im Team-Ordner) wirft File::delete, bevor der
-				// Papierkorb berührt wird – das nächste Mitglied versuchen, nicht den Lauf anhalten
+				// Without delete permission (group permissions, ACL in the team folder) File::delete throws
+				// before the trash bin is touched – try the next member, do not halt the run
 				if (!$node->isDeletable()) {
 					$lastError = $this->t('Account %s may not delete the file (missing delete permission, e.g. group permissions or ACL)', [$uid]);
 					continue;
@@ -229,10 +229,10 @@ class Deleter {
 				$node->delete();
 			} catch (LockedException $e) {
 				$error = [LogEntry::STATUS_SKIPPED_LOCKED, $this->t('File is locked: %s', [$e->getMessage()])];
-				// Sperre auf der Datei selbst und (geteilt) auf ihren Elternordnern holt View::unlink
-				// (View::lockFile), bevor der Papierkorb drankommt – z. B. ein lesender Sync-Client oder
-				// ein Umbenennen des Ordners: nur diese Datei überspringen. Sperren an anderen Pfaden
-				// können aus dem Papierkorb stammen und halten den Lauf weiter an.
+				// View::unlink (View::lockFile) acquires the lock on the file itself and (shared) on its
+				// parent folders before the trash bin gets its turn – e.g. a reading sync client or a
+				// folder rename: skip only this file. Locks on other paths may come from the trash bin
+				// and still halt the run.
 				if ($node !== null && self::lockedBeforeTrash($e->getPath(), $node->getPath())) {
 					$deleting = false;
 				}
@@ -243,8 +243,8 @@ class Deleter {
 				$error = [LogEntry::STATUS_ERROR, $e::class . ': ' . $e->getMessage()];
 			}
 			if ($error !== null && $deleting) {
-				// Ausnahme aus dem Löschen selbst: Papierkorb-Zustand dieses Prozesses ist unzuverlässig.
-				// trashPaused trotzdem zurücksetzen – sonst löschen Folgejobs im selben Prozess endgültig
+				// Exception from the deletion itself: the trash bin state of this process is unreliable.
+				// Reset trashPaused anyway – otherwise subsequent jobs in the same process delete permanently
 				try {
 					$this->resumeTrash();
 				} catch (Throwable) {
@@ -254,7 +254,7 @@ class Deleter {
 				$error[1] = $this->t('%s – further deletions halted for this run', [$error[1]]);
 			}
 
-			// Auch nach einer Ausnahme nachsehen: Sie kann nach dem Entfernen fliegen
+			// Check even after an exception: it may be thrown after the removal
 			$where = $this->whereIsFile($root, $file);
 			if ($where === 'trash') {
 				$area = $this->trashArea($root);
@@ -271,8 +271,8 @@ class Deleter {
 				return [LogEntry::STATUS_ERROR, $this->t('File is at an unexpected location after deletion (%s) – please check', [$where])];
 			}
 			if ($error !== null && ($deleting || $error[0] === LogEntry::STATUS_SKIPPED_LOCKED)) {
-				// Kein weiterer Kandidat: nach einer Ausnahme beim Löschen ginge der nächste Versuch
-				// womöglich am Papierkorb vorbei
+				// No further candidate: after an exception while deleting, the next attempt might
+				// bypass the trash bin
 				return [$error[0], mb_substr($error[1], 0, 1000)];
 			}
 			$lastError = $error[1] ?? $this->t('File still present unchanged after deletion');
@@ -281,9 +281,9 @@ class Deleter {
 	}
 
 	/**
-	 * Gesperrter Pfad = die Datei selbst oder einer ihrer Ordner ab „/<uid>/files“? Diese Sperren
-	 * holt View::lockFile vor dem Papierkorb. „/<uid>“ allein nicht – das sperren auch
-	 * View-Operationen im Papierkorb (Versionen kopieren).
+	 * Is the locked path the file itself or one of its folders from "/<uid>/files" down? These locks
+	 * are acquired by View::lockFile before the trash bin. Not "/<uid>" alone – that is also locked
+	 * by view operations in the trash bin (copying versions).
 	 */
 	private static function lockedBeforeTrash(string $locked, string $nodePath): bool {
 		$locked = trim($locked, '/');
@@ -292,17 +292,17 @@ class Deleter {
 	}
 
 	/**
-	 * Protokollmeldung zu „deleted“: Papierkorb, Aktivität und Audit-Log nennen dieses Konto als
-	 * Löschenden – die Meldung macht klar, dass es die App war.
+	 * Log message for "deleted": trash bin, activity and audit log name this account as the
+	 * deleting user – the message makes clear that it was the app.
 	 */
 	public function deletedVia(string $uid): string {
 		return $this->t('Moved to the trash bin via account %1$s (trash bin/activity name %1$s as the deleting user; folder_retention deleted it)', [$uid]);
 	}
 
 	/**
-	 * Konten, über deren Sicht gelöscht werden darf. Konto-Bereiche: nur der Besitzer.
-	 * Team-Ordner: Mitglieder in fester, sortierter Reihenfolge – Nextcloud nennt das gewählte
-	 * Konto als Löschenden, das soll nicht davon abhängen, welcher Kontext gerade eingerichtet ist.
+	 * Accounts through whose view deletion is allowed. Account areas: only the owner.
+	 * Team folders: members in a fixed, sorted order – Nextcloud names the chosen account as the
+	 * deleting user, and that should not depend on which context happens to be set up.
 	 *
 	 * @return list<string>
 	 */
@@ -316,7 +316,7 @@ class Deleter {
 	}
 
 	/**
-	 * Gründe, aus denen Nextcloud die Datei am Papierkorb vorbei löschen würde – vorher erkennbare.
+	 * Reasons for which Nextcloud would delete the file bypassing the trash bin – those detectable in advance.
 	 */
 	private function trashBlocker(RetentionRoot $root, IUser $user, FileRow $file, int|float $versions): ?string {
 		$uid = $user->getUID();
@@ -330,22 +330,22 @@ class Deleter {
 	}
 
 	/**
-	 * Konto-Papierkorb: rechnet wie files_trashbin (Trashbin::getConfiguredTrashbinSize,
-	 * calculateFreeSpace) mit dem Stand NACH dem Verschieben. Ist danach kein Platz mehr frei,
-	 * räumt der Expire-Job Einträge endgültig ab – womöglich gerade die verschobenen.
-	 * Gemessen wird ganz files_trashbin, also samt der mitverschobenen Versionen ($versions);
-	 * die Belegung wie dort über die Konto-Wurzel (bei Objektspeicher samt Papierkorb und Versionen).
+	 * Account trash bin: calculates like files_trashbin (Trashbin::getConfiguredTrashbinSize,
+	 * calculateFreeSpace) with the state AFTER the move. If no space is left afterwards, the expire
+	 * job permanently purges entries – possibly the very ones just moved.
+	 * All of files_trashbin is measured, i.e. including the versions moved along ($versions);
+	 * usage as there via the account root (with object storage including trash bin and versions).
 	 */
 	private function accountTrashBlocker(RetentionRoot $root, IUser $user, FileRow $file, int|float $versions): ?string {
 		$uid = $user->getUID();
-		// Höchstgröße (trashbin_size): Konto-Wert vor App-Wert
+		// Maximum size (trashbin_size): account value takes precedence over app value
 		$limit = $this->config->getUserValue($uid, 'files_trashbin', 'trashbin_size', '-1');
 		if (!is_numeric($limit) || (float)$limit <= -1) {
 			try {
 				$limit = $this->appConfig->getValueString('files_trashbin', 'trashbin_size', '-1');
 			} catch (AppConfigTypeConflictException) {
-				// occ trashbin:size speichert eine Zahl, files_trashbin liest Text – jedes Verschieben
-				// in den Papierkorb scheitert dann mit einer Ausnahme
+				// occ trashbin:size stores a number, files_trashbin reads text – every move to the
+				// trash bin then fails with an exception
 				return $this->t('trashbin_size is stored with the wrong type (e.g. after occ trashbin:size) – Nextcloud then fails to move files to the trash bin; not deleted. Fix: occ config:app:delete files_trashbin trashbin_size and set the value again');
 			} catch (Throwable $e) {
 				return $this->t('trashbin_size not readable (%s); not deleted', [$e->getMessage()]);
@@ -369,24 +369,24 @@ class Deleter {
 
 		$quota = $user->getQuota();
 		if ($quota === null || $quota === '' || $quota === 'none') {
-			return null; // ohne Quota räumt files_trashbin nur bei voller Platte
+			return null; // without a quota files_trashbin only purges when the disk is full
 		}
 		$quotaBytes = Util::computerFileSize($quota);
 		if ($quotaBytes === false || $quotaBytes < 0) {
-			return null; // ungültige Quota gilt bei files_trashbin als unbegrenzt
+			return null; // files_trashbin treats an invalid quota as unlimited
 		}
-		// Belegung wie files_trashbin: Größe der Konto-Wurzel, nach dem Verschieben
+		// Usage as in files_trashbin: size of the account root, after the move
 		$files = $this->fileCache->getSize($root->storageId, 'files');
 		$files = $files === null || $files < 0 ? 0 : $files;
 		if ($this->homeCacheCountsFilesOnly($root->storageId)) {
-			// Lokaler Speicher (Storage\Home mit HomeCache): Die Wurzel meldet die Größe von files/,
-			// die Datei ist danach nicht mehr darin. Die Wurzelzeile im Filecache ist hier
-			// bedeutungslos (0 oder veraltet) und bleibt außen vor.
+			// Local storage (Storage\Home with HomeCache): the root reports the size of files/,
+			// and the file is no longer in it afterwards. The root row in the file cache is
+			// meaningless here (0 or outdated) and is left out.
 			$used = max(0, $files - $size);
 		} else {
-			// Objektspeicher (HomeObjectStoreStorage, normaler Cache): Die Wurzelzeile zählt
-			// files/, Papierkorb und Versionen – die Datei bleibt nach dem Verschieben darin.
-			// Unbekannte Speicherart ebenso: lieber zu viel Belegung als zu wenig.
+			// Object storage (HomeObjectStoreStorage, normal cache): the root row counts
+			// files/, trash bin and versions – the file stays in it after the move.
+			// Same for an unknown storage type: better to overestimate usage than underestimate it.
 			$whole = $this->fileCache->getSize($root->storageId, '');
 			$whole = $whole === null || $whole < 0 ? 0 : $whole;
 			$used = max($files, $whole);
@@ -400,9 +400,9 @@ class Deleter {
 	}
 
 	/**
-	 * Rechnet Nextcloud für dieses Konto die Belegung nur aus files/ (HomeCache)? Das gilt für den
-	 * lokalen Home-Storage („home::<uid>“, ältere Installationen „local::<pfad>“). Objektspeicher als
-	 * Primärspeicher heißt „object::user:<uid>“ und nimmt den normalen Cache.
+	 * Does Nextcloud calculate this account's usage from files/ only (HomeCache)? That applies to
+	 * the local home storage ("home::<uid>", older installations "local::<path>"). Object storage as
+	 * primary storage is called "object::user:<uid>" and uses the normal cache.
 	 */
 	private function homeCacheCountsFilesOnly(int $storageId): bool {
 		$id = $this->fileCache->storageStringId($storageId);
@@ -414,11 +414,11 @@ class Deleter {
 	}
 
 	/**
-	 * Größe der Versionen, die files_trashbin beim Löschen mit in den Papierkorb verschiebt
-	 * (Trashbin::retainVersions, nur bei aktivem files_versions). Team-Ordner: groupfolders
-	 * lässt Versionen liegen und zählt sie bei der Räumung nicht mit.
+	 * Size of the versions that files_trashbin moves into the trash bin along with the file
+	 * (Trashbin::retainVersions, only with files_versions enabled). Team folders: groupfolders
+	 * leaves versions in place and does not count them when purging.
 	 *
-	 * @return int|float|null null = unbekannt
+	 * @return int|float|null null = unknown
 	 */
 	private function versionsSize(RetentionRoot $root, IUser $user, FileRow $file): int|float|null {
 		if (!$root->isAccount() || !$this->appManager->isEnabledForUser('files_versions', $user)) {
@@ -428,9 +428,9 @@ class Deleter {
 	}
 
 	/**
-	 * Team-Ordner: groupfolders (ExpireGroupTrash, stündlich) leert den Papierkorb, solange
-	 * Inhalt + Papierkorb die Quota übersteigen. Das Verschieben ändert die Summe nicht –
-	 * ist sie schon zu groß, wäre auch diese Datei bald endgültig weg.
+	 * Team folder: groupfolders (ExpireGroupTrash, hourly) empties the trash bin as long as
+	 * content + trash bin exceed the quota. The move does not change the sum –
+	 * if it is already too large, this file too would soon be permanently gone.
 	 */
 	private function teamTrashBlocker(RetentionRoot $root, FileRow $file): ?string {
 		$quota = $this->fileCache->groupFolderQuota($root->rootId);
@@ -441,7 +441,7 @@ class Deleter {
 			$quota = $this->config->getSystemValueInt('groupfolders.quota.default', -3);
 		}
 		if ($quota <= 0) {
-			return null; // unbegrenzt
+			return null; // unlimited
 		}
 		$content = $this->fileCache->getSize($root->storageId, $root->rootPath);
 		if ($content === null || $content < 0) {
@@ -456,9 +456,9 @@ class Deleter {
 	}
 
 	/**
-	 * Papierkorb eines Bereichs: [Schlüssel, Storage, interner Pfad].
-	 * Team-Ordner: „__groupfolders/<id>“ → „__groupfolders/trash/<id>“; mit eigenem Storage je
-	 * Team-Ordner liegen Dateien unter „files“, der Papierkorb unter „trash“.
+	 * Trash bin of an area: [key, storage, internal path].
+	 * Team folder: "__groupfolders/<id>" → "__groupfolders/trash/<id>"; with a separate storage per
+	 * team folder, files are under "files" and the trash bin under "trash".
 	 *
 	 * @return array{0: string, 1: int, 2: string}
 	 */
@@ -474,8 +474,8 @@ class Deleter {
 	}
 
 	/**
-	 * Aktuelle Papierkorbgröße – mindestens der Stand beim ersten Blick plus das in diesem Lauf
-	 * Verschobene (falls Nextcloud die Ordnergröße noch nicht nachgezogen hat).
+	 * Current trash bin size – at least the state at first look plus what was moved in this run
+	 * (in case Nextcloud has not updated the folder size yet).
 	 */
 	private function trashUsed(RetentionRoot $root): int|float {
 		[$key, $storageId, $path] = $this->trashArea($root);
@@ -485,7 +485,7 @@ class Deleter {
 		return max($read, $this->trashBase[$key] + ($this->trashAdded[$key] ?? 0));
 	}
 
-	/** Für den Rest des Laufs nichts mehr löschen; Warnung ins Nextcloud-Log */
+	/** Delete nothing more for the rest of the run; warning to the Nextcloud log */
 	private function halt(string $reason, string $uid, FileRow $file): void {
 		$this->halted ??= mb_substr($reason, 0, 500);
 		$this->logger->warning('folder_retention: exception while moving to the trash bin – further deletions halted for this run, as Nextcloud might bypass the trash bin afterwards', [
@@ -493,15 +493,15 @@ class Deleter {
 		]);
 	}
 
-	/** Grund, warum in diesem Lauf nicht mehr gelöscht wird; null = alles in Ordnung */
+	/** Reason why nothing more is deleted in this run; null = all fine */
 	public function haltReason(): ?string {
 		return $this->halted;
 	}
 
 	/**
-	 * Dateisystem und aktiven Benutzer auf $user umstellen – nur, wenn nicht schon geschehen.
+	 * Switch the filesystem and active user to $user – only if not already done.
 	 *
-	 * @return string|null Fehlermeldung, wenn der Kontext nicht nachweislich stimmt
+	 * @return string|null error message if the context is not demonstrably correct
 	 */
 	private function enterContext(IUser $user): ?string {
 		$uid = $user->getUID();
@@ -525,7 +525,7 @@ class Deleter {
 			$this->contextUid = $uid;
 		}
 
-		// Sicherheitsgurt: files_trashbin verlässt sich auf genau diese Sicht
+		// Safety net: files_trashbin relies on exactly this view
 		$viewRoot = $this->viewRoot();
 		if ($viewRoot !== "/$uid/files" || $this->userSession->getUser()?->getUID() !== $uid) {
 			$this->contextUid = null;
@@ -536,8 +536,8 @@ class Deleter {
 	}
 
 	/**
-	 * Den Knoten der Datei im Home des Besitzers bzw. im Team-Ordner-Mount – nie über eine Freigabe.
-	 * Löschen über einen Freigabe-Mount entfernt nur die Freigabe, nicht die Datei.
+	 * The file's node in the owner's home or in the team folder mount – never via a share.
+	 * Deleting via a share mount only removes the share, not the file.
 	 */
 	private function findNode(RetentionRoot $root, string $uid, FileRow $file): ?File {
 		foreach ($this->rootFolder->getUserFolder($uid)->getById($file->fileId) as $node) {
@@ -563,11 +563,11 @@ class Deleter {
 	}
 
 	/**
-	 * Wo ist die Datei nach dem Löschversuch? Datei-IDs bleiben beim Verschieben in den
-	 * Papierkorb erhalten; ist die ID aus dem Filecache verschwunden, ist die Datei endgültig weg –
-	 * außer im Team-Ordner, dessen Papierkorb sie unter neuer ID führt (copiedToGroupTrash).
+	 * Where is the file after the deletion attempt? File IDs are preserved when moving to the
+	 * trash bin; if the ID has disappeared from the file cache, the file is permanently gone –
+	 * except in a team folder, whose trash bin may hold it under a new ID (copiedToGroupTrash).
 	 *
-	 * @return string 'trash' | 'gone' | 'unchanged' | interner Pfad an unerwartetem Ort
+	 * @return string 'trash' | 'gone' | 'unchanged' | internal path at an unexpected location
 	 */
 	private function whereIsFile(RetentionRoot $root, FileRow $file): string {
 		$entry = $this->fileCache->getEntry($file->fileId);
@@ -583,7 +583,7 @@ class Deleter {
 			}
 		} else {
 			$inTrash = $this->fileCache->isInGroupFolderTrash($file->fileId);
-			// Ohne file_id-Spalte (ältere groupfolders): Papierkorb liegt unter …/trash/…
+			// Without a file_id column (older groupfolders): the trash bin is under .../trash/...
 			if ($inTrash ?? (bool)preg_match('#(^|/)trash/#', $entry['path'])) {
 				return 'trash';
 			}
@@ -592,10 +592,10 @@ class Deleter {
 	}
 
 	/**
-	 * Team-Ordner mit groupfolders-Verschlüsselung: groupfolders kopiert die Datei in den
-	 * Papierkorb (Encryption::copyBetweenStorage) – dort steht sie unter einer NEUEN Datei-ID,
-	 * oc_group_folders_trash nennt weiter die alte. Liegt unter Name und Zeitpunkt dieses
-	 * Eintrags eine Datei im Papierkorb, die keinem anderen Papierkorb-Eintrag gehört, ist sie dort.
+	 * Team folder with groupfolders encryption: groupfolders copies the file into the trash bin
+	 * (Encryption::copyBetweenStorage) – there it has a NEW file ID, while oc_group_folders_trash
+	 * still names the old one. If a file in the trash bin sits under this entry's name and time and
+	 * belongs to no other trash bin entry, the file is there.
 	 */
 	private function copiedToGroupTrash(RetentionRoot $root, FileRow $file): bool {
 		$trashed = $this->fileCache->groupFolderTrashEntry($file->fileId);
@@ -604,15 +604,15 @@ class Deleter {
 		}
 		[, $storageId, $path] = $this->trashArea($root);
 		$id = $this->fileCache->getIdByPath($storageId, $path . '/' . $trashed['name'] . '.d' . $trashed['time']);
-		// Gehört die ID dort einem anderen Eintrag, hat eine andere Datei den Platz belegt
+		// If the ID there belongs to another entry, a different file has taken the spot
 		return $id !== null && $this->fileCache->isInGroupFolderTrash($id) === false;
 	}
 
 	/**
-	 * Nach dem Lauf: Dateisystem abbauen und den vorherigen Benutzer wiederherstellen.
+	 * After the run: tear down the filesystem and restore the previous user.
 	 */
 	public function releaseContext(): void {
-		// Prozess mit unpausiertem Papierkorb an Folgejobs übergeben (NC 34: kein finally in moveToTrash)
+		// Hand the process over to subsequent jobs with the trash bin unpaused (NC 34: no finally in moveToTrash)
 		try {
 			$this->resumeTrash();
 		} catch (Throwable $e) {
@@ -645,19 +645,18 @@ class Deleter {
 		$this->lostIds = [];
 	}
 
-	/** Ab dieser Namenslänge (Byte) gelten alle Namen eines Papierkorbs als möglicherweise gleich */
+	/** From this name length (bytes) on, all names in a trash bin are considered possibly equal */
 	private const LONG_NAME_BYTES = 220;
-	private const LONG_NAME_KEY = '/lang'; // kein Dateiname enthält „/“
+	private const LONG_NAME_KEY = '/lang'; // no file name contains "/"
 
 	/**
-	 * Schlüssel für Namenskollisionen im Papierkorb (klein geschrieben – vorsichtshalber).
+	 * Keys for name collisions in the trash bin (lowercased – as a precaution).
 	 *
-	 * files_trashbin kürzt „<name>.d<Zeit>“ über 250 Byte in der Mitte (Trashbin::getTrashFilename):
-	 * Zwei Namen, die sich nur im herausgeschnittenen Stück unterscheiden, ergeben denselben
-	 * Eintrag. Daher der Name so, wie Nextcloud ihn bildet (Zeit zehnstellig wie time() bis 2286),
-	 * und für lange Namen zusätzlich ein gemeinsamer Schlüssel: Versionen heißen
-	 * „<name>.v<Version>.d<Zeit>“ und werden schon bei kürzeren Namen gekürzt, groupfolders
-	 * kürzt womöglich anders. Nach jeder langen Datei also eine neue Sekunde abwarten.
+	 * files_trashbin shortens "<name>.d<time>" above 250 bytes in the middle (Trashbin::getTrashFilename):
+	 * two names that differ only in the cut-out part yield the same entry. Hence the name as
+	 * Nextcloud builds it (time with ten digits like time() until 2286), plus a shared key for long
+	 * names: versions are named "<name>.v<version>.d<time>" and get shortened even for shorter
+	 * names, and groupfolders may shorten differently. So after every long file, wait for a new second.
 	 *
 	 * @return list<string>
 	 */
@@ -670,7 +669,7 @@ class Deleter {
 		return $keys;
 	}
 
-	/** Wie Trashbin::getTrashFilename (NC 34/35) – Länge in Byte, gekürzt wird nach Zeichen */
+	/** Like Trashbin::getTrashFilename (NC 34/35) – length in bytes, shortened by characters */
 	private static function trashFilename(string $filename, int $timestamp): string {
 		$trashFilename = $filename . '.d' . $timestamp;
 		$length = strlen($trashFilename);
@@ -685,20 +684,20 @@ class Deleter {
 		return $start . '_' . $end;
 	}
 
-	/** Höchstens so oft (je 0,1 s) warten, bis der Papierkorb-Name der aktuellen Sekunde frei ist */
+	/** Wait at most this many times (0.1 s each) until the trash bin name of the current second is free */
 	private const TRASH_NAME_MAX_PAUSES = 100;
 
 	/**
-	 * Wurde schon eine gleichnamige Datei in denselben Papierkorb verschoben, bis zur nächsten
-	 * Sekunde warten – sonst bekäme sie denselben Namen „<name>.d<time()>“, und Nextcloud
-	 * überschriebe den früheren Eintrag endgültig.
+	 * If a same-named file has already been moved into the same trash bin, wait until the next
+	 * second – otherwise it would get the same name "<name>.d<time()>", and Nextcloud would
+	 * permanently overwrite the earlier entry.
 	 *
-	 * Zwei Quellen: die Löschungen dieses Laufs (auch kurze Namen mit anderer Schreibweise) und
-	 * der Filecache. Letzterer kennt auch Einträge eines anderen Laufs, der eben erst die
-	 * Laufsperre freigegeben hat – z. B. zwei occ-Läufe direkt hintereinander, oder der Job
-	 * übernimmt die Sperre in derselben Sekunde. Der Speicher dieses Laufs weiß davon nichts.
+	 * Two sources: this run's deletions (including short names with different casing) and the
+	 * file cache. The latter also knows entries of another run that has only just released the
+	 * run lock – e.g. two occ runs right after each other, or the job takes over the lock in the
+	 * same second. This run's memory knows nothing about those.
 	 *
-	 * @return string|null Grund, warum nicht gelöscht wird (Name bleibt belegt); null = frei
+	 * @return string|null reason why it is not deleted (name stays taken); null = free
 	 */
 	private function awaitFreshTrashSecond(RetentionRoot $root, FileRow $file): ?string {
 		$last = null;
@@ -723,10 +722,10 @@ class Deleter {
 	}
 
 	/**
-	 * Liegt im Papierkorb des Bereichs schon ein Eintrag mit dem Namen, den Nextcloud dieser
-	 * Datei in Sekunde $time gäbe? files_trashbin: „files_trashbin/files/<getTrashFilename>“,
-	 * groupfolders: „<Papierkorb>/<name>.d<time>“. Lange Namen kürzt Nextcloud womöglich anders
-	 * (Versionen, groupfolders) – dort zählt vorsichtshalber jeder Eintrag dieser Sekunde.
+	 * Is there already an entry in the area's trash bin with the name Nextcloud would give this
+	 * file in second $time? files_trashbin: "files_trashbin/files/<getTrashFilename>",
+	 * groupfolders: "<trash bin>/<name>.d<time>". Nextcloud may shorten long names differently
+	 * (versions, groupfolders) – there, as a precaution, every entry of this second counts.
 	 */
 	private function trashNameTaken(RetentionRoot $root, FileRow $file, int $time): bool {
 		[, $storageId, $path] = $this->trashArea($root);
@@ -740,7 +739,7 @@ class Deleter {
 	}
 
 	private function rememberTrashed(RetentionRoot $root, FileRow $file, bool $verified): void {
-		// Sekunde NACH dem Löschen: mindestens die, die Nextcloud im Namen verwendet hat
+		// Second AFTER the deletion: at least the one Nextcloud used in the name
 		$entry = ['at' => $this->now(), 'root' => $root, 'file' => $file, 'verified' => $verified];
 		foreach ($this->trashNameKeys($file) as $name) {
 			$this->trashed[$this->trashArea($root)[0]][$name][] = $entry;
@@ -751,24 +750,24 @@ class Deleter {
 	}
 
 	/**
-	 * Sicherheitsgurt nach jedem Löschversuch: Liegen die gleichnamigen, in diesem Lauf in
-	 * denselben Papierkorb verschobenen Dateien noch dort? Fehlt eine, hat Nextcloud ihren Eintrag
-	 * überschrieben – sie ist endgültig weg. Dann Lauf anhalten und den Verlust melden (takeLost).
+	 * Safety net after every deletion attempt: are the same-named files moved into the same trash
+	 * bin in this run still there? If one is missing, Nextcloud overwrote its entry – it is
+	 * permanently gone. Then halt the run and report the loss (takeLost).
 	 *
-	 * Überschreiben kann Nextcloud nur einen Eintrag derselben Sekunde. Nachgeprüft werden daher
-	 * nur Einträge, die frühestens in der Sekunde vor diesem Löschversuch ($attemptAt) entstanden
-	 * sind (eine Sekunde Spiel). Ältere fallen aus der Liste: Fehlt so ein Eintrag, hat ihn der
-	 * Nutzer geleert oder der Papierkorb abgelaufen – das ist kein Verlust durch diese App.
+	 * Nextcloud can only overwrite an entry of the same second. Therefore only entries created no
+	 * earlier than the second before this deletion attempt ($attemptAt) are re-checked (one second
+	 * of slack). Older ones drop out of the list: if such an entry is missing, the user emptied it
+	 * or the trash bin expired it – that is not a loss caused by this app.
 	 */
 	private function checkEarlierTrashEntries(RetentionRoot $root, FileRow $file, int $attemptAt): void {
 		$area = $this->trashArea($root)[0];
-		/** @var array<int, string> Datei-ID → Befund dieses Aufrufs (eine Datei steht unter mehreren Schlüsseln) */
+		/** @var array<int, string> file ID → finding of this call (a file is listed under several keys) */
 		$seen = [];
 		foreach ($this->trashNameKeys($file) as $name) {
 			$kept = [];
 			foreach ($this->trashed[$area][$name] ?? [] as $t) {
 				if ($t['at'] < $attemptAt - 1) {
-					continue; // andere Sekunde – kann diesen Namen nicht bekommen haben
+					continue; // different second – cannot have received this name
 				}
 				$id = $t['file']->fileId;
 				$where = $seen[$id] ??= !$t['verified'] || $id === $file->fileId ? 'trash' : $this->whereIsFile($t['root'], $t['file']);
@@ -777,7 +776,7 @@ class Deleter {
 					continue;
 				}
 				if ($where !== 'gone' || isset($this->lostIds[$id])) {
-					continue; // inzwischen wiederhergestellt o. Ä. bzw. schon gemeldet
+					continue; // restored in the meantime or similar, or already reported
 				}
 				$this->markLost($t['root'], $t['file'], $this->t('Trash bin entry disappeared later – when the file “%s” was moved (same name in the trash bin), Nextcloud overwrote it; file permanently deleted', [$root->displayPath($file->path)]));
 			}
@@ -787,7 +786,7 @@ class Deleter {
 		}
 	}
 
-	/** Verlust vormerken (takeLost), Nextcloud-Log, Lauf anhalten */
+	/** Record the loss (takeLost), Nextcloud log, halt the run */
 	private function markLost(RetentionRoot $root, FileRow $file, string $reason): void {
 		$this->lostIds[$file->fileId] = true;
 		$this->lost[] = [$root, $file, $reason];
@@ -798,16 +797,16 @@ class Deleter {
 	}
 
 	/**
-	 * Sicherheitsgurt am Laufende (vor takeLost/releaseContext): Löscht ein Nutzer in derselben
-	 * Sekunde eine gleichnamige Datei, überschreibt Nextcloud den Eintrag der App – und danach
-	 * sieht checkEarlierTrashEntries nicht mehr nach, wenn die App diesen Namen nicht noch einmal
-	 * löscht. Daher eine volle Sekunde nach der letzten verbuchten Löschung abwarten und jede in
-	 * diesem Lauf verbuchte Löschung genau einmal nachprüfen. Fehlt ein Eintrag, meldet takeLost ihn:
-	 * - aus den letzten zwei Sekunden immer (kurz nach dem Verschieben kann es nur Überschreiben
-	 *   oder sofortiges endgültiges Löschen gewesen sein),
-	 * - ältere nur, wenn unter ihrem Namen und ihrer Sekunde jetzt ein anderer Eintrag liegt –
-	 *   dann hat Nextcloud ihn überschrieben. Liegt dort nichts, kann ebenso der Nutzer den
-	 *   Papierkorb geleert haben oder der Eintrag abgelaufen sein.
+	 * Safety net at the end of the run (before takeLost/releaseContext): if a user deletes a
+	 * same-named file in the same second, Nextcloud overwrites the app's entry – and afterwards
+	 * checkEarlierTrashEntries no longer looks, unless the app deletes that name again.
+	 * Hence wait a full second after the last recorded deletion and re-check every deletion
+	 * recorded in this run exactly once. If an entry is missing, takeLost reports it:
+	 * - from the last two seconds always (shortly after the move it can only have been an
+	 *   overwrite or an immediate permanent deletion),
+	 * - older ones only if another entry now sits under their name and second –
+	 *   then Nextcloud overwrote it. If nothing is there, the user may just as well have emptied
+	 *   the trash bin or the entry may have expired.
 	 */
 	public function verifyRecentTrash(): void {
 		$entries = $this->verifiedTrash;
@@ -837,8 +836,8 @@ class Deleter {
 	}
 
 	/**
-	 * Seit dem letzten Aufruf entdeckte Dateien, die als gelöscht galten, deren Papierkorb-Eintrag
-	 * aber verloren ging – der Aufrufer korrigiert das Protokoll und sperrt den Bereich.
+	 * Files discovered since the last call that were considered deleted but whose trash bin entry
+	 * was lost – the caller corrects the log and locks the area.
 	 *
 	 * @return list<array{0: RetentionRoot, 1: FileRow, 2: string}>
 	 */
@@ -848,19 +847,19 @@ class Deleter {
 		return $lost;
 	}
 
-	// Private Nextcloud-API und Umgebung, gekapselt (in Unit-Tests ersetzt)
+	// Private Nextcloud API and environment, encapsulated (replaced in unit tests)
 
-	/** System-Cron oder occ – nicht cron.php im Web (AJAX/Webcron) */
+	/** System cron or occ – not cron.php on the web (AJAX/Webcron) */
 	protected function isCli(): bool {
 		return PHP_SAPI === 'cli';
 	}
 
-	/** Trägt die laufende Anfrage „X-NC-Skip-Trashbin: true“? files_trashbin löscht dann endgültig. */
+	/** Does the current request carry "X-NC-Skip-Trashbin: true"? files_trashbin then deletes permanently. */
 	protected function requestSkipsTrashbin(): bool {
 		try {
 			return \OCP\Server::get(\OCP\IRequest::class)->getHeader('X-NC-Skip-Trashbin') === 'true';
 		} catch (Throwable) {
-			return false; // ohne Anfrage-Objekt (CLI ohne Request) gibt es auch keine Kopfzeile
+			return false; // without a request object (CLI without request) there is no header either
 		}
 	}
 
@@ -882,17 +881,17 @@ class Deleter {
 	}
 
 	/**
-	 * Setzt TrashManager::$trashPaused zurück. Bleibt es nach einer Ausnahme im Papierkorb-Backend
-	 * hängen, liefert moveToTrash sofort false – und der Speicher-Wrapper löscht endgültig.
+	 * Resets TrashManager::$trashPaused. If it stays stuck after an exception in the trash bin
+	 * backend, moveToTrash immediately returns false – and the storage wrapper deletes permanently.
 	 */
 	protected function resumeTrash(): void {
 		if (!interface_exists(\OCA\Files_Trashbin\Trash\ITrashManager::class)) {
-			return; // files_trashbin nicht geladen – dann gibt es auch keinen pausierten Papierkorb
+			return; // files_trashbin not loaded – then there is no paused trash bin either
 		}
 		\OCP\Server::get(\OCA\Files_Trashbin\Trash\ITrashManager::class)->resumeTrash();
 	}
 
-	/** Wurzel von Filesystem::getView() – die Sicht, über die files_trashbin den Papierkorb findet */
+	/** Root of Filesystem::getView() – the view through which files_trashbin finds the trash bin */
 	protected function viewRoot(): ?string {
 		return \OC\Files\Filesystem::getView()?->getRoot();
 	}

@@ -1,6 +1,6 @@
 /*
- * Farben der Fristen, geteilt von Regelplakette, Detailansicht und Protokoll.
- * Orange = Löschfrist (dunkel), Blau = Nie löschen (hell) – unterscheidbar auch ohne Farbsehen.
+ * Retention period colors, shared by the rule badge, detail view and log.
+ * Orange = deletion period (dark), blue = never delete (light) – distinguishable even without color vision.
  */
 #folder-retention-admin {
 	--fr-delete: #a84300;
@@ -11,7 +11,7 @@
 	--fr-keep-text: #0a3274;
 }
 
-/* Dunkles Theme: Orange heller, Blau dunkler – Helligkeitsabstand bleibt erhalten */
+/* Dark theme: orange lighter, blue darker – the lightness contrast is preserved */
 body[data-themes*='dark'] #folder-retention-admin,
 body[data-theme-dark] #folder-retention-admin {
 	--fr-delete: #ff8a3d;

@@ -14,19 +14,19 @@ use OCP\IDBConnection;
 use Psr\Log\LoggerInterface;
 
 /**
- * Informative Systemtags („Aufbewahrung: 2 Wochen“) an Dateien und Ordnern.
+ * Informational system tags ("Retention: 2 weeks") on files and folders.
  *
- * Die Tags bilden nur ab, welche Frist gerade gilt – gelöscht wird ausschließlich anhand
- * der Ordnerregeln, Tags werden nie ausgewertet.
+ * The tags only reflect which retention period currently applies – deletion is based solely
+ * on the folder rules; tags are never evaluated.
  *
- * Zuordnungen werden bewusst direkt in oc_systemtag_object_mapping geschrieben statt über
- * ISystemTagObjectMapper: Der Core-Weg löst pro Datei Events aus – die Activity-App schreibt
- * dann für jeden Benutzer mit Zugriff einen Eintrag („Admin hat Tag … zugewiesen“), und
- * Flow-Regeln auf „Tag zugewiesen“ würden anspringen. Beides ist hier unerwünscht.
+ * Mappings are deliberately written directly to oc_systemtag_object_mapping instead of via
+ * ISystemTagObjectMapper: the core path fires events per file – the Activity app then writes
+ * an entry for every user with access ("Admin assigned tag …"), and Flow rules on
+ * "tag assigned" would trigger. Neither is wanted here.
  *
- * Tags sind „eingeschränkt“: sichtbar, aber nur für Admins zuweisbar. Manuelle Änderungen
- * korrigiert der nächste Lauf. Verwaltet (und ggf. entfernt) werden nur Tags, die diese
- * App selbst angelegt hat (Registry in IAppConfig).
+ * Tags are "restricted": visible, but assignable by admins only. Manual changes are
+ * corrected by the next run. Only tags that this app created itself are managed (and
+ * possibly removed) (registry in IAppConfig).
  */
 class TagService {
 	public const OBJECT_TYPE = 'files';
@@ -36,7 +36,7 @@ class TagService {
 	private const COLOR_DELETE = 'c25400';
 	private const COLOR_KEEP = '2f63b8';
 
-	/** @var array<string, int>|null Tagname → ID */
+	/** @var array<string, int>|null tag name → ID */
 	private ?array $registry = null;
 
 	public function __construct(
@@ -60,7 +60,7 @@ class TagService {
 		return $l->t('Retention: %s', [$period->isNever() ? $l->t('unlimited') : $period->label($l)]);
 	}
 
-	/** Tag-ID für eine Frist; legt den Tag bei Bedarf an */
+	/** Tag ID for a retention period; creates the tag if needed */
 	public function tagIdFor(Period $period): int {
 		$label = $this->labelFor($period);
 		$registry = $this->registry();
@@ -73,15 +73,15 @@ class TagService {
 		return $id;
 	}
 
-	/** @return list<int> IDs aller von der App angelegten Tags */
+	/** @return list<int> IDs of all tags created by the app */
 	public function managedTagIds(): array {
 		return array_values(array_unique($this->registry()));
 	}
 
 	/**
-	 * Gleicht die Tags der angegebenen Objekte ab.
+	 * Reconciles the tags of the given objects.
 	 *
-	 * @param array<int, ?int> $desired fileid → gewünschte Tag-ID (null = kein Aufbewahrungs-Tag)
+	 * @param array<int, ?int> $desired fileid → desired tag ID (null = no retention tag)
 	 */
 	public function apply(array $desired, ?RunStats $stats = null): void {
 		$managed = $this->managedTagIds();
@@ -165,7 +165,7 @@ class TagService {
 		}
 	}
 
-	/** Entfernt alle Aufbewahrungs-Tags von allen Dateien (Tags selbst bleiben bestehen) */
+	/** Removes all retention tags from all files (the tags themselves remain) */
 	public function removeAll(): int {
 		$managed = $this->managedTagIds();
 		if ($managed === []) {
@@ -181,8 +181,8 @@ class TagService {
 	}
 
 	/**
-	 * Entfernt Aufbewahrungs-Tags von Objekten, die kein Lauf mehr erreicht:
-	 * gelöschte Dateien und Dateien im Papierkorb oder in Versionen.
+	 * Removes retention tags from objects that no run reaches anymore:
+	 * deleted files and files in the trash bin or in versions.
 	 */
 	public function sweepOrphans(): int {
 		$managed = $this->managedTagIds();
@@ -192,7 +192,7 @@ class TagService {
 		$removed = 0;
 		$after = '';
 		while (true) {
-			// objectid ist varchar – in PHP abgleichen statt per JOIN mit Cast
+			// objectid is varchar – match in PHP instead of via JOIN with a cast
 			$qb = $this->db->getQueryBuilder();
 			$qb->selectDistinct('objectid')->from(self::MAP_TABLE)
 				->where($qb->expr()->eq('objecttype', $qb->createNamedParameter(self::OBJECT_TYPE)))
@@ -233,7 +233,7 @@ class TagService {
 		}
 	}
 
-	/** @return array<string, int> Tagname → ID, nur noch existierende Tags */
+	/** @return array<string, int> tag name → ID, only tags that still exist */
 	private function registry(): array {
 		if ($this->registry !== null) {
 			return $this->registry;
@@ -242,7 +242,7 @@ class TagService {
 		$registry = is_array($raw) ? array_map('intval', $raw) : [];
 
 		if ($registry !== []) {
-			// Von Admins gelöschte Tags vergessen – sie werden bei Bedarf neu angelegt
+			// forget tags deleted by admins – they are recreated when needed
 			$qb = $this->db->getQueryBuilder();
 			$qb->select('id')->from(self::TAG_TABLE)
 				->where($qb->expr()->in('id', $qb->createNamedParameter(array_values($registry), IQueryBuilder::PARAM_INT_ARRAY)));
@@ -262,9 +262,9 @@ class TagService {
 	}
 
 	/**
-	 * Legt einen eingeschränkten Tag an. Gibt es den Namen schon als fremden Tag (z. B. einen
-	 * alten files_retention-Tag), wird er NICHT übernommen, sondern ein eigener Name gewählt –
-	 * sonst würden unsere Zuordnungen fremde Regeln auslösen.
+	 * Creates a restricted tag. If the name already exists as a foreign tag (e.g. an
+	 * old files_retention tag), it is NOT adopted; instead a name of our own is chosen –
+	 * otherwise our mappings would trigger foreign rules.
 	 */
 	private function createTag(string $label, string $color): int {
 		$l = $this->language->l10n();
@@ -288,7 +288,7 @@ class TagService {
 				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
 					throw $e;
 				}
-				// Gleichzeitig von einem anderen Prozess angelegt – nochmals prüfen
+				// created concurrently by another process – check again
 				$id = $this->findTag($name);
 				if ($id !== null) {
 					return $id;
@@ -316,7 +316,7 @@ class TagService {
 		return $id === false ? null : (int)$id;
 	}
 
-	/** ETag der Tags erneuern, damit Clients ihre Tag-Listen neu laden (wie der Core-Mapper) */
+	/** Renew the tags' ETag so clients reload their tag lists (like the core mapper) */
 	private function touchTags(array $tagIds): void {
 		if ($tagIds === []) {
 			return;

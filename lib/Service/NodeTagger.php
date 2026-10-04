@@ -14,13 +14,13 @@ use OCP\Files\Node;
 use OCP\Files\Storage\ISharedStorage;
 
 /**
- * Taggt eine einzelne Datei bzw. einen Ordner sofort (nach Hochladen, Verschieben, Kopieren),
- * damit neue Dateien nicht bis zum nächsten Tageslauf ohne Tag bleiben.
+ * Tags a single file or folder immediately (after upload, move, copy),
+ * so that new files don't stay untagged until the next daily run.
  *
- * Der Bereich wird direkt am Mount abgelesen statt über RootProvider::getRoots() –
- * das wäre pro Upload viel zu teuer. Bei Freigaben wird die Datei in der Sicht des
- * Besitzers nachgeschlagen (sie liegt in dessen Home-Storage). Externe Speicher usw.
- * werden übergangen.
+ * The area is read directly from the mount instead of via RootProvider::getRoots() –
+ * that would be far too expensive per upload. For shares, the file is looked up in the
+ * owner's view (it lives in the owner's home storage). External storage etc.
+ * is skipped.
  */
 class NodeTagger {
 	public function __construct(
@@ -35,7 +35,7 @@ class NodeTagger {
 	}
 
 	/**
-	 * @param bool $subtree bei Ordnern auch alle Inhalte (per Hintergrundjob)
+	 * @param bool $subtree for folders, all contents as well (via background job)
 	 */
 	public function tag(Node $node, bool $subtree): void {
 		$node = $this->ownerView($node);
@@ -56,7 +56,7 @@ class NodeTagger {
 		$this->fileCache->reset();
 		$chain = $this->fileCache->chain($isFolder ? $fileId : $entry['parent'], $root->rootId);
 		if ($chain === null) {
-			return; // außerhalb von files/ bzw. des Team-Ordners
+			return; // outside files/ or the team folder
 		}
 		$this->tags->apply([$fileId => $this->runner->desiredTag($root, $chain, $this->rules->snapshot())]);
 
@@ -65,7 +65,7 @@ class NodeTagger {
 		}
 	}
 
-	/** Bei Freigaben: derselbe Knoten in der Sicht des Besitzers (auch bei weitergeteilten Freigaben) */
+	/** For shares: the same node in the owner's view (also for reshared shares) */
 	private function ownerView(Node $node): ?Node {
 		for ($i = 0; $i < 5; $i++) {
 			$storage = $node->getStorage();

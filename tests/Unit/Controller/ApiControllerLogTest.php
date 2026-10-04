@@ -23,7 +23,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Protokoll-Endpunkte: Grenzen für limit/offset/Zeitraum und welche Filter beim Mapper ankommen.
+ * Log endpoints: bounds for limit/offset/time range and which filters reach the mapper.
  */
 class ApiControllerLogTest extends TestCase {
 	private LogMapper&MockObject $mapper;

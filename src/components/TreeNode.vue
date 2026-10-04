@@ -74,7 +74,7 @@ const label = computed(() => {
 	if (isPersonalGroup.value) {
 		return t('folder_retention', 'Personal folders ({count})', { count: state.children[PERSONAL_KEY]?.length ?? 0 })
 	}
-	// persönliche Wurzel: nur das Konto zeigen – der Name trägt das (übersetzte) Präfix „Persönlich · “
+	// personal root: show only the account – the name carries the (translated) prefix "Persönlich · "
 	return node.value?.isRoot && node.value.kind === 'home' ? (node.value.accountId ?? node.value.name) : node.value?.name
 })
 

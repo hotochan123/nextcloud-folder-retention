@@ -15,33 +15,33 @@ class ReferenceDateTest extends TestCase {
 
 	/**
 	 * @return iterable<string, array{Basis, ?int, ?int, ?int, ?int, ?int, ?int, ?string}>
-	 *   basis, creation_time, upload_time, mtime, first_seen, letzte Löschung, erwarteter Timestamp, erwartete Quelle
+	 *   basis, creation_time, upload_time, mtime, first_seen, last deletion, expected timestamp, expected source
 	 */
 	public static function cases(): iterable {
-		// basis=created = seit Ablage in Nextcloud: max(upload_time, creation_time)
+		// basis=created = since being stored in Nextcloud: max(upload_time, creation_time)
 		yield 'created: upload_time' => [Basis::Created, null, 2000, 3000, null, null, 2000, 'upload'];
 		yield 'created: alte X-OC-CTime zählt nicht' => [Basis::Created, 1000, 2000, 3000, null, null, 2000, 'upload'];
 		yield 'created: creation_time nach Upload gewinnt' => [Basis::Created, 2500, 2000, 3000, null, null, 2500, 'created'];
 		yield 'created: creation_time 0' => [Basis::Created, 0, 2000, 3000, null, null, 2000, 'upload'];
 		yield 'created: negativ gilt als nicht gesetzt' => [Basis::Created, -5, 2000, 3000, null, null, 2000, 'upload'];
-		// Ohne upload_time (files:scan, Altbestand): „zuerst gesehen“, nie mtime oder creation_time
+		// Without upload_time (files:scan, legacy files): "first seen", never mtime or creation_time
 		yield 'created: ohne upload_time → first_seen' => [Basis::Created, 1000, 0, 3000, 5000, null, 5000, 'seen'];
 		yield 'created: upload_time null → first_seen' => [Basis::Created, null, null, 3000, 5000, null, 5000, 'seen'];
 		yield 'created: ohne upload_time und first_seen → keins' => [Basis::Created, 1000, 0, 3000, null, null, null, null];
 		yield 'created: nichts brauchbar' => [Basis::Created, 0, 0, 0, null, null, null, null];
-		// Zukunftswerte werden auf jetzt gekappt
+		// Future values are capped to now
 		yield 'created: upload_time in der Zukunft' => [Basis::Created, null, 99_999, 3000, null, null, self::NOW, 'upload'];
 		yield 'created: creation_time in der Zukunft' => [Basis::Created, 99_999, 2000, 3000, null, null, self::NOW, 'created'];
 		yield 'modified: mtime in der Zukunft' => [Basis::Modified, null, null, 99_999, null, null, self::NOW, 'mtime'];
-		// basis=modified ignoriert creation/upload/first_seen
+		// basis=modified ignores creation/upload/first_seen
 		yield 'modified: mtime' => [Basis::Modified, 1000, 2000, 3000, 4000, null, 3000, 'mtime'];
 		yield 'modified: mtime 0 → kein Fallback' => [Basis::Modified, 1000, 2000, 0, 4000, null, null, null];
-		// Aus dem Papierkorb wiederhergestellt: frühestens ab der letzten Löschung
+		// Restored from the trash bin: no earlier than the last deletion
 		yield 'created: wiederhergestellt' => [Basis::Created, null, 2000, 3000, null, 7000, 7000, 'restored'];
 		yield 'modified: wiederhergestellt' => [Basis::Modified, null, null, 3000, null, 7000, 7000, 'restored'];
 		yield 'Löschung vor Bezugsdatum ändert nichts' => [Basis::Created, null, 2000, 3000, null, 1500, 2000, 'upload'];
 		yield 'wiederhergestellt ohne sonstiges Datum bleibt ohne' => [Basis::Created, null, 0, 3000, null, 7000, null, null];
-		// Wiederherstellung erst lange nach der Löschung: ab dem ersten Sehen danach
+		// Restored long after the deletion: from the first sighting after that
 		yield 'created: später wiederhergestellt → erstes Sehen danach' => [Basis::Created, null, 2000, 3000, 9000, 7000, 9000, 'restored'];
 		yield 'modified: später wiederhergestellt → erstes Sehen danach' => [Basis::Modified, null, null, 3000, 9000, 7000, 9000, 'restored'];
 		yield 'erstes Sehen vor der Löschung zählt nicht' => [Basis::Created, null, 2000, 3000, 6000, 7000, 7000, 'restored'];
@@ -49,9 +49,9 @@ class ReferenceDateTest extends TestCase {
 	}
 
 	/**
-	 * Kopien erben upload_time/creation_time des Originals: „zuerst gesehen“ zählt neben
-	 * upload_time nur für Datei-IDs über der beim Update gemerkten höchsten ID (neu).
-	 *   upload_time, first_seen, neu, erwarteter Timestamp, erwartete Quelle
+	 * Copies inherit upload_time/creation_time of the original: "first seen" counts alongside
+	 * upload_time only for file IDs above the highest ID recorded at update time (new).
+	 *   upload_time, first_seen, new, expected timestamp, expected source
 	 */
 	public static function copyCases(): iterable {
 		yield 'neue Datei-ID (Kopie): ab erstem Sehen' => [2000, 6000, true, 6000, 'seen'];
@@ -68,8 +68,8 @@ class ReferenceDateTest extends TestCase {
 	}
 
 	/**
-	 * Befund: Regel 7 Tage, an Tag 0 gelöscht, an Tag 10 zurückgeholt – nicht erneut fällig,
-	 * Frist ab dem ersten Sehen nach der Wiederherstellung (auch bei Bestand mit upload_time).
+	 * Finding: rule 7 days, deleted on day 0, restored on day 10 – not due again,
+	 * retention period runs from the first sighting after the restore (also for existing files with upload_time).
 	 */
 	public function testRestoredLongAfterDeletionIsNotDueAgain(): void {
 		$day = 86400;
@@ -86,8 +86,8 @@ class ReferenceDateTest extends TestCase {
 	}
 
 	/**
-	 * Grenze über die Datei-ID: Kopien bekommen immer eine neue, höhere ID – auch wenn sie im
-	 * ersten Zyklus nach dem Update auftauchen, bevor dieser fertig ist.
+	 * Boundary via the file ID: copies always get a new, higher ID – even if they show up in the
+	 * first cycle after the update, before it has finished.
 	 */
 	public function testFileRowIsNewAboveMark(): void {
 		$copy = (new FileRow(21, 1, 1, 'files/kopie.pdf', 3000, 2000, 2000))->with(6000, null, 20);

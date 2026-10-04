@@ -1,5 +1,5 @@
 <?php
-// Nur für den Harness (dev/it, S23): Primärspeicher = Objektspeicher (FretDirObjectStore)
+// Harness only (dev/it, S23): primary storage = object store (FretDirObjectStore)
 $CONFIG = [
 	'objectstore' => [
 		'class' => 'OC\\Files\\ObjectStore\\FretDirObjectStore',
