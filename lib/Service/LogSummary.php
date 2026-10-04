@@ -18,6 +18,9 @@ use OCA\FolderRetention\Db\LogMapper;
  * @psalm-type Counts = array{deleted: int, would_delete: int, skipped: int, error: int}
  */
 class LogSummary {
+	/** Statusgruppen wie der Statusfilter des Protokolls; categoryOf() in src/format.js spiegelt das */
+	public const CATEGORIES = ['deleted', 'would_delete', 'skipped', 'error'];
+
 	public function __construct(
 		private LogMapper $mapper,
 		private Settings $settings,
@@ -25,7 +28,8 @@ class LogSummary {
 	}
 
 	/**
-	 * Tage neueste zuerst; total = Zahl aller Tage mit Einträgen.
+	 * Tage neueste zuerst; total = Zahl aller Tage mit Einträgen. Liest dafür alle passenden
+	 * Zeilen (schmal, in Blöcken) – bei sehr großem Protokoll die Zählung in SQL verlagern.
 	 *
 	 * @param LogFilter $filter
 	 * @return array{days: list<array{date: string, from: int, to: int, total: int, counts: Counts}>, total: int}
@@ -88,6 +92,7 @@ class LogSummary {
 
 	/** @return Counts */
 	private static function emptyCounts(): array {
-		return ['deleted' => 0, 'would_delete' => 0, 'skipped' => 0, 'error' => 0];
+		/** @var Counts */
+		return array_fill_keys(self::CATEGORIES, 0);
 	}
 }

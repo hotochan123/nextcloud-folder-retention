@@ -1412,12 +1412,14 @@ s32() {
 	done
 	api() { docker exec "$C" curl -sf -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/$1"; }
 	paths() { api "log?search=s32&folder=$1" | grep -o '"path":"[^"]*"' | sed 's/"path":"//; s/"$//; s#\\/#/#g' | sort | tr '\n' '|'; }
-	local p1 p2 p3 root folders days ok=1
+	local p1 p2 p3 root folders unbounded days ok=1
 	p1=$(paths 'S32%20100%25_%5Bx%5D')
 	p2=$(paths 'S32%20100%25_%5Bx%5D%2Fsub')
 	p3=$(paths 'S32%201000x%5Bx%5D')
 	root=$(api 'log?folder=' | grep -o '"path":"s32-loose.txt"' || true)
-	folders=$(api 'log/folders?search=S32' | grep -o '"folder":"[^"]*","total":[0-9]*' | tr '\n' ' ')
+	folders=$(api "log/folders?search=S32&from=$((at - 3600))&to=$((at + 3600))" | grep -o '"folder":"[^"]*","total":[0-9]*' | tr '\n' ' ')
+	# ohne Zeitraum würde die Zählung das ganze Protokoll lesen – abgelehnt
+	unbounded=$(docker exec "$C" curl -s -o /dev/null -w '%{http_code}' -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/log/folders?search=S32")
 	days=$(api 'log/days?search=s32' | grep -o '"total":[0-9]*,"counts"' | head -1)
 	[[ "$p1" == "S32 100%_[x]/a.txt|" ]] || ok=0
 	[[ "$p2" == "S32 100%_[x]/sub/b.txt|" ]] || ok=0
@@ -1425,8 +1427,9 @@ s32() {
 	[[ -n "$root" ]] || ok=0
 	[[ "$folders" == *'"folder":"S32 100%_[x]","total":1'* && "$folders" == *'"folder":"S32 100%_[x]\/sub","total":1'* ]] || ok=0
 	[[ "$days" == '"total":4,"counts"' ]] || ok=0
+	[[ "$unbounded" == 400 ]] || ok=0
 	sql "DELETE FROM oc_folder_retention_log WHERE rule_label = 's32'"
-	local note="Ordnerfilter: [${p1}] [${p2}] [${p3}], ohne Ordner: ${root:-fehlt}; Ordner: ${folders}; Tag: ${days:-leer}"
+	local note="Ordnerfilter: [${p1}] [${p2}] [${p3}], ohne Ordner: ${root:-fehlt}; Ordner: ${folders}; Tag: ${days:-leer}; ohne Zeitraum: HTTP ${unbounded}"
 	if [[ $ok == 1 ]]; then
 		result PASS S32 "$note"
 	else

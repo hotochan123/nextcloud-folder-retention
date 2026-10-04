@@ -5,7 +5,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { register, unregister } from '@nextcloud/l10n'
-import { baseName, countChips, effectText, folderOf, formatDay, periodLabel, sourceLabel, sourceText, unblockPayload, unusualSource } from './format.js'
+import { baseName, categoryOf, countChips, effectText, formatDay, periodLabel, sourceLabel, sourceText, unblockPayload, unusualSource } from './format.js'
 
 const de = JSON.parse(readFileSync(new URL('../l10n/.js-de.json', import.meta.url), 'utf8')).translations
 
@@ -76,9 +76,11 @@ test('Sperre aufheben schickt nur die angezeigten Bereiche mit Zeitpunkt', () =>
 	assert.deepEqual(unblockPayload([]), { unblock: [] })
 })
 
-test('Protokoll: Ordner und Dateiname wie LogSummary::folderOf()', () => {
-	assert.equal(folderOf('Team/Drafts/a.txt'), 'Team/Drafts')
-	assert.equal(folderOf('a.txt'), '')
+test('Protokoll: Dateiname und Statusgruppe wie LogSummary::category()', () => {
+	assert.equal(categoryOf('would_delete'), 'would_delete')
+	assert.equal(categoryOf('skipped_locked'), 'skipped')
+	assert.equal(categoryOf('deleted_final'), 'error')
+	assert.equal(categoryOf('something_new'), 'error')
 	assert.equal(baseName('Team/Drafts/a.txt'), 'a.txt')
 	assert.equal(baseName('a.txt'), 'a.txt')
 })

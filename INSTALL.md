@@ -216,7 +216,7 @@ occ config:app:set folder_retention job_time_budget --value=120 --type=integer #
 "Simulation on" also affects an `occ folder_retention:run` or job that is
 already running: before every deletion the app reads the switch afresh from
 the database. From then on the rest of the run is only simulated (log
-"simulation", warning in the Nextcloud log).
+status "Would delete", warning in the Nextcloud log).
 
 ## 7. Update
 

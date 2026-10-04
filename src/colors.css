@@ -1,0 +1,23 @@
+/*
+ * Farben der Fristen, geteilt von Regelplakette, Detailansicht und Protokoll.
+ * Orange = Löschfrist (dunkel), Blau = Nie löschen (hell) – unterscheidbar auch ohne Farbsehen.
+ */
+#folder-retention-admin {
+	--fr-delete: #a84300;
+	--fr-delete-text-outline: #8a3700;
+	--fr-delete-on: #fff;
+	--fr-keep: #cfe2ff;
+	--fr-keep-border: #2f63b8;
+	--fr-keep-text: #0a3274;
+}
+
+/* Dunkles Theme: Orange heller, Blau dunkler – Helligkeitsabstand bleibt erhalten */
+body[data-themes*='dark'] #folder-retention-admin,
+body[data-theme-dark] #folder-retention-admin {
+	--fr-delete: #ff8a3d;
+	--fr-delete-text-outline: #ffa466;
+	--fr-delete-on: #1f0d00;
+	--fr-keep: #1b3d73;
+	--fr-keep-border: #7fb0ff;
+	--fr-keep-text: #d6e6ff;
+}

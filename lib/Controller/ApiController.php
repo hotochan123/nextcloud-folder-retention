@@ -34,6 +34,8 @@ use OCP\IUserSession;
 class ApiController extends Controller {
 	private const PREVIEW_LIMIT = 500;
 	private const PREVIEW_BUDGET = 20.0;
+	/** längster Zeitraum für /api/log/folders */
+	private const LOG_FOLDERS_SPAN = 31 * 86400;
 	/** Pfadwert für die Standardregel persönlicher Ordner */
 	private const PERSONAL = 'personal';
 
@@ -180,7 +182,7 @@ class ApiController extends Controller {
 
 	/**
 	 * Übersicht: Tage mit Einträgen (neueste zuerst) samt Zahlen je Statusgruppe.
-	 * Gleiche Filter wie /api/log.
+	 * Gleiche Filter wie /api/log außer folder.
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/log/days')]
 	public function logDays(int $limit = 10, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): JSONResponse {
@@ -193,17 +195,22 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * Übersicht: Ordner mit Einträgen samt Zahlen, für einen Tag über from/to.
+	 * Übersicht: Ordner mit Einträgen samt Zahlen für einen Zeitraum, meist einen Tag.
+	 * from und to sind Pflicht und höchstens LOG_FOLDERS_SPAN auseinander – die Zählung liest
+	 * jede passende Zeile, ohne Grenze wäre das das ganze Protokoll.
 	 * Die Dateien eines Ordners liefert /api/log mit folder=<Ordner>.
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/log/folders')]
 	public function logFolders(?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): JSONResponse {
+		if ($from === null || $to === null || $from <= 0 || $to < $from || $to - $from > self::LOG_FOLDERS_SPAN) {
+			return new JSONResponse(['message' => $this->l->t('Invalid time range')], Http::STATUS_BAD_REQUEST);
+		}
 		return new JSONResponse(['folders' => $this->logSummary->folders($this->logFilter($mode, $status, $search, $from, $to))]);
 	}
 
 	/**
 	 * Protokoll als CSV (Semikolon, UTF-8 mit BOM – öffnet in Excel direkt richtig).
-	 * Gleiche Filter wie /api/log.
+	 * Gleiche Filter wie /api/log außer folder.
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/log/export')]
 	public function exportLog(?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): DataDownloadResponse {
@@ -253,7 +260,7 @@ class ApiController extends Controller {
 		$search = trim((string)$search);
 		return ($folder === null ? [] : ['folder' => mb_substr($folder, 0, 4000)]) + [
 			'mode' => in_array($mode, ['real', 'simulation'], true) ? $mode : null,
-			'status' => in_array($status, ['deleted', 'would_delete', 'skipped', 'error'], true) ? $status : null,
+			'status' => in_array($status, LogSummary::CATEGORIES, true) ? $status : null,
 			'search' => $search === '' ? null : mb_substr($search, 0, 200),
 			'from' => $from !== null && $from > 0 ? $from : null,
 			'to' => $to !== null && $to > 0 ? $to : null,

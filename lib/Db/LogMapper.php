@@ -11,7 +11,7 @@ use OCP\IDBConnection;
 /**
  * @extends QBMapper<LogEntry>
  *
- * Filter (alle optional): mode (real|simulation), status (deleted|would_delete|skipped|error –
+ * Filter (alle optional): mode (real|simulation – nur API und CSV, die Oberfläche filtert nicht danach), status (deleted|would_delete|skipped|error –
  * „error“ schließt endgültige Löschungen ein),
  * search (Teil des Pfads), from/to (Unix-Zeitstempel, einschließlich),
  * folder (genau dieser Elternordner des Pfads, ohne Unterordner; '' = Pfade ohne Ordner).
@@ -54,24 +54,8 @@ class LogMapper extends QBMapper {
 	 * @return \Generator<LogEntry>
 	 */
 	public function iterate(array $filter = [], int $chunk = 1000): \Generator {
-		$beforeId = null;
-		while (true) {
-			$qb = $this->db->getQueryBuilder();
-			$qb->select('*')->from($this->getTableName())
-				->orderBy('id', 'DESC')
-				->setMaxResults($chunk);
-			$this->applyFilter($qb, $filter);
-			if ($beforeId !== null) {
-				$qb->andWhere($qb->expr()->lt('id', $qb->createNamedParameter($beforeId, IQueryBuilder::PARAM_INT)));
-			}
-			$entries = $this->findEntities($qb);
-			foreach ($entries as $entry) {
-				yield $entry;
-			}
-			if (count($entries) < $chunk) {
-				return;
-			}
-			$beforeId = end($entries)->getId();
+		foreach ($this->chunks(['*'], $filter, $chunk) as $row) {
+			yield $this->mapRowToEntity($row);
 		}
 	}
 
@@ -82,10 +66,24 @@ class LogMapper extends QBMapper {
 	 * @return \Generator<array{path: string, status: string, deleted_at: int}>
 	 */
 	public function iterateSummary(array $filter = [], int $chunk = 5000): \Generator {
+		foreach ($this->chunks(['id', 'path', 'status', 'deleted_at'], $filter, $chunk) as $row) {
+			yield ['path' => (string)$row['path'], 'status' => (string)$row['status'], 'deleted_at' => (int)$row['deleted_at']];
+		}
+	}
+
+	/**
+	 * Zeilen in Blöcken nach id absteigend – weiter ab der kleinsten id des letzten Blocks statt
+	 * per Offset, damit neue Einträge während des Lesens nichts verschieben.
+	 *
+	 * @param list<string> $columns muss id enthalten
+	 * @param LogFilter $filter
+	 * @return \Generator<array<string, mixed>>
+	 */
+	private function chunks(array $columns, array $filter, int $chunk): \Generator {
 		$beforeId = null;
 		while (true) {
 			$qb = $this->db->getQueryBuilder();
-			$qb->select('id', 'path', 'status', 'deleted_at')->from($this->getTableName())
+			$qb->select(...$columns)->from($this->getTableName())
 				->orderBy('id', 'DESC')
 				->setMaxResults($chunk);
 			$this->applyFilter($qb, $filter);
@@ -97,7 +95,7 @@ class LogMapper extends QBMapper {
 			while ($row = $result->fetch()) {
 				$n++;
 				$beforeId = (int)$row['id'];
-				yield ['path' => (string)$row['path'], 'status' => (string)$row['status'], 'deleted_at' => (int)$row['deleted_at']];
+				yield $row;
 			}
 			$result->closeCursor();
 			if ($n < $chunk) {
@@ -133,6 +131,8 @@ class LogMapper extends QBMapper {
 		// Gleiche Abgrenzung wie LogSummary::folderOf(): direkter Elternordner, keine Unterordner.
 		// NOT (… LIKE …) statt notLike(): notLike() hängt auf SQLite und Oracle kein ESCAPE an,
 		// ein Ordner mit „%“ oder „_“ im Namen zeigte sonst auch seine Unterordner.
+		// Bekannter Randfall: MySQL/MariaDB vergleichen mit *_ci-Collation ohne Groß-/Kleinschreibung,
+		// „Docs“ zeigt dort auch die Dateien aus „docs“, die die Übersicht getrennt zählt.
 		if (isset($filter['folder'])) {
 			$prefix = $filter['folder'] === '' ? '' : $this->db->escapeLikeParameter($filter['folder']) . '/';
 			if ($prefix !== '') {

@@ -452,12 +452,12 @@ async function onSave() {
 	}
 
 	&--delete {
-		border-color: #a84300;
+		border-color: var(--fr-delete);
 		background: rgba(168, 67, 0, 0.08);
 	}
 
 	&--keep {
-		border-color: #2f63b8;
+		border-color: var(--fr-keep-border);
 		background: rgba(47, 99, 184, 0.08);
 	}
 

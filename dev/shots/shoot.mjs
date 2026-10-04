@@ -242,7 +242,7 @@ try {
 	await scrollToEl(s, "#fr-log-title", 16)
 	await until(s, "return document.querySelectorAll('.fr-folder > summary').length > 0")
 	await s.script("document.querySelectorAll('.fr-day[open] .fr-folder:not([open]) > summary').forEach((e) => e.click())")
-	await until(s, "return document.querySelectorAll('.fr-log__table tbody tr').length > 0")
+	await until(s, "return document.querySelectorAll('.fr-files__table tbody tr').length > 0")
 	await report(s, 'log')
 	await shot(s, 'log', 800)
 

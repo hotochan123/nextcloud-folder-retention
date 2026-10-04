@@ -43,6 +43,7 @@
         "Folder retention: switch on simulation mode for a later re-activation": "Ordner-Aufbewahrung: Simulationsmodus für eine spätere Reaktivierung einschalten",
         "Internal error: %1$s: %2$s": "Interner Fehler: %1$s: %2$s",
         "Invalid folder ID": "Ungültige Ordner-ID",
+        "Invalid time range": "Ungültiger Zeitraum",
         "Lock lifted: %s": "Sperre aufgehoben: %s",
         "Locked: “%1$s” (key %2$s) – %3$s": "Gesperrt: „%1$s“ (Schlüssel %2$s) – %3$s",
         "Message": "Meldung",

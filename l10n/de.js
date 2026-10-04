@@ -204,6 +204,7 @@ OC.L10N.register(
         "Inherited rule": "Geerbte Regel",
         "Internal error: %1$s: %2$s": "Interner Fehler: %1$s: %2$s",
         "Invalid folder ID": "Ungültige Ordner-ID",
+        "Invalid time range": "Ungültiger Zeitraum",
         "key": "Schlüssel",
         "Last complete run: {date}": "Letzter vollständiger Lauf: {date}",
         "Last modification": "Letzte Änderung",

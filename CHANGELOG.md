@@ -49,7 +49,9 @@ Preparation for the Nextcloud App Store.
   ("Would delete · Simulation") is shown once, the source of the reference
   date only when it is not the usual one, the date range sits behind
   "Date range", and the mode filter is gone (the status says it). New
-  endpoints `/api/log/days` and `/api/log/folders`, `/api/log` takes `folder`.
+  endpoints `/api/log/days` and `/api/log/folders` (needs `from` and `to`,
+  at most 31 days apart), `/api/log` takes `folder`. The account that moved
+  a file to the trash bin is shown under the file name.
 - Dates, sizes and sorting on the settings page follow the user's locale.
 - The rule objects in the API no longer carry `label` by themselves; the
   endpoints add it in the request language.

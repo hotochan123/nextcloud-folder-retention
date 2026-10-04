@@ -29,15 +29,9 @@ const label = computed(() => props.eff.inactive ? t('folder_retention', 'No dele
 
 <style scoped lang="scss">
 /*
- * Orange = Löschfrist (dunkel), Blau = Nie löschen (hell) – unterscheidbar auch ohne Farbsehen.
- * Gefüllt = eigene Regel, umrandet = geerbt.
+ * Farben aus colors.css. Gefüllt = eigene Regel, umrandet = geerbt.
  */
 .fr-badge {
-	--fr-delete: #a84300;
-	--fr-delete-text-outline: #8a3700;
-	--fr-keep: #cfe2ff;
-	--fr-keep-border: #2f63b8;
-	--fr-keep-text: #0a3274;
 	display: inline-block;
 	min-width: 7.5em;
 	padding: 1px 10px;
@@ -52,7 +46,7 @@ const label = computed(() => props.eff.inactive ? t('folder_retention', 'No dele
 	&--delete.fr-badge--own {
 		background: var(--fr-delete);
 		border-color: var(--fr-delete);
-		color: #fff;
+		color: var(--fr-delete-on);
 	}
 	&--delete.fr-badge--inherited {
 		background: transparent;
@@ -76,20 +70,6 @@ const label = computed(() => props.eff.inactive ? t('folder_retention', 'No dele
 		border-style: dotted;
 		color: var(--color-text-maxcontrast, #6b6b6b);
 		font-weight: normal;
-	}
-}
-
-// Dunkles Theme: Orange heller, Blau dunkler – Helligkeitsabstand bleibt erhalten
-:global(body[data-themes*='dark']) .fr-badge,
-:global(body[data-theme-dark]) .fr-badge {
-	--fr-delete: #ff8a3d;
-	--fr-delete-text-outline: #ffa466;
-	--fr-keep: #1b3d73;
-	--fr-keep-border: #7fb0ff;
-	--fr-keep-text: #d6e6ff;
-
-	&.fr-badge--delete.fr-badge--own {
-		color: #1f0d00;
 	}
 }
 </style>

@@ -132,11 +132,14 @@ export function unblockPayload(entries) {
 	return { unblock: entries.map(b => ({ key: b.key, at: b.at })) }
 }
 
-/** Direkter Elternordner eines Protokollpfads, wie LogSummary::folderOf() im Backend */
-export function folderOf(path) {
-	const i = path.lastIndexOf('/')
-	return i < 0 ? '' : path.slice(0, i)
+/** Statusgruppe eines Protokolleintrags, wie LogSummary::category() im Backend: Unbekanntes zählt als Fehler */
+export function categoryOf(status) {
+	if (status === 'deleted' || status === 'would_delete') return status
+	return status.startsWith('skipped') ? 'skipped' : 'error'
 }
+
+/** Farbton der Plaketten je Statusgruppe */
+export const CATEGORY_TONE = { error: 'error', deleted: 'delete', would_delete: 'sim', skipped: 'skip' }
 
 export function baseName(path) {
 	return path.slice(path.lastIndexOf('/') + 1)
@@ -168,10 +171,10 @@ export function formatTime(ts) {
  */
 export function countChips(counts) {
 	const chips = [
-		['error', 'error', c => n('folder_retention', '%n error', '%n errors', c)],
-		['deleted', 'delete', c => n('folder_retention', '%n deleted', '%n deleted', c)],
-		['would_delete', 'sim', c => n('folder_retention', '%n would be deleted', '%n would be deleted', c)],
-		['skipped', 'skip', c => n('folder_retention', '%n skipped', '%n skipped', c)],
+		['error', c => n('folder_retention', '%n error', '%n errors', c)],
+		['deleted', c => n('folder_retention', '%n deleted', '%n deleted', c)],
+		['would_delete', c => n('folder_retention', '%n would be deleted', '%n would be deleted', c)],
+		['skipped', c => n('folder_retention', '%n skipped', '%n skipped', c)],
 	]
-	return chips.filter(([key]) => counts[key] > 0).map(([key, tone, label]) => ({ key, tone, label: label(counts[key]) }))
+	return chips.filter(([key]) => counts[key] > 0).map(([key, label]) => ({ key, tone: CATEGORY_TONE[key], label: label(counts[key]) }))
 }
