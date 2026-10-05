@@ -38,6 +38,9 @@ class ApiController extends Controller {
 	private const LOG_FOLDERS_SPAN = 31 * 86400;
 	/** path value for the default rule of personal folders */
 	private const PERSONAL = 'personal';
+	/** Preview of every area (tab "Upcoming" next to the log) */
+	private const ALL = 'all';
+	private const UPCOMING_LIMIT = 2000;
 
 	public function __construct(
 		IRequest $request,
@@ -152,17 +155,19 @@ class ApiController extends Controller {
 	}
 
 	/**
-	 * @param string $folderId folder ID, "default" or "personal" (= all files under the respective default rule)
+	 * @param string $folderId folder ID, "default" or "personal" (= all files under the respective default rule),
+	 *                         "all" (= every file of every area)
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/preview')]
 	public function preview(string $folderId = 'default', int $days = 7): JSONResponse {
 		$personal = $folderId === self::PERSONAL;
-		$id = $personal ? null : $this->parseFolderId($folderId);
+		$all = $folderId === self::ALL;
+		$id = $personal || $all ? null : $this->parseFolderId($folderId);
 		if ($id === false) {
 			return new JSONResponse(['message' => $this->l->t('Invalid folder ID')], Http::STATUS_BAD_REQUEST);
 		}
 		$days = max(0, min(366, $days));
-		$result = $this->runner->preview($id, $days, self::PREVIEW_LIMIT, self::PREVIEW_BUDGET, $personal);
+		$result = $this->runner->preview($id, $days, $all ? self::UPCOMING_LIMIT : self::PREVIEW_LIMIT, self::PREVIEW_BUDGET, $personal, $all);
 		$result['days'] = $days;
 		return new JSONResponse($result);
 	}

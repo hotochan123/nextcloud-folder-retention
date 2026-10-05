@@ -5,7 +5,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { register, unregister } from '@nextcloud/l10n'
-import { baseName, categoryOf, countChips, effectText, formatDay, periodLabel, sourceLabel, sourceText, unblockPayload, unusualSource } from './format.js'
+import { baseName, categoryOf, countChips, effectText, formatDay, groupUpcoming, localDay, periodLabel, sourceLabel, sourceText, unblockPayload, unusualSource } from './format.js'
 
 const de = JSON.parse(readFileSync(new URL('../l10n/.js-de.json', import.meta.url), 'utf8')).translations
 
@@ -103,4 +103,23 @@ test('Log: day without time zone shift', () => {
 	// "2026-10-04" is a day in the instance time zone; new Date('2026-10-04') would be UTC midnight
 	assert.match(formatDay('2026-10-04'), /4/)
 	assert.doesNotMatch(formatDay('2026-10-04'), /3/)
+})
+
+test('upcoming deletions: already due first, then by day; folders by area and parent folder', () => {
+	const at = (day, hour) => Math.floor(new Date(`${day}T${hour}:00:00`).getTime() / 1000)
+	const item = (path, root, day, overdue = false, size = 10) => ({ path, root, size, expiresAt: at(day, '10'), overdue })
+	const groups = groupUpcoming([
+		item('Team/Folder 10/a.pdf', 'r1', '2026-10-09'),
+		item('Team/Folder 2/b.pdf', 'r1', '2026-10-09', false, 5),
+		item('Archive/c.pdf', 'r2', '2026-10-07'),
+		item('Archive/d.pdf', 'r3', '2026-10-07'),
+		item('old.txt', 'r1', '2026-10-01', true),
+		item('Team/Folder 2/e.pdf', 'r1', '2026-10-09', false, 7),
+	])
+	assert.deepEqual(groups.map(g => [g.key, g.total, g.size]), [['due', 1, 10], ['2026-10-07', 2, 20], ['2026-10-09', 3, 22]])
+	assert.deepEqual(groups[0].folders.map(f => f.folder), [''])
+	assert.deepEqual(groups[1].folders.map(f => [f.folder, f.root]), [['Archive', 'r2'], ['Archive', 'r3']], 'same name, different area')
+	assert.deepEqual(groups[2].folders.map(f => [f.folder, f.total, f.size]), [['Team/Folder 2', 2, 12], ['Team/Folder 10', 1, 10]], 'natural order')
+	assert.equal(localDay(at('2026-10-09', '23')), '2026-10-09')
+	assert.deepEqual(groupUpcoming([]), [])
 })

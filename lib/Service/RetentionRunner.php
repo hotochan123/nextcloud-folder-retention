@@ -393,9 +393,10 @@ class RetentionRunner {
 	 *
 	 * @param int|null $folderId null = all files to which a default rule applies
 	 * @param bool $personal with $folderId = null: the default rule for personal folders instead of the general one
+	 * @param bool $all with $folderId = null: every file of every area, whatever rule applies (overview "Upcoming")
 	 * @return array{items: list<array<string, mixed>>, total: int, truncated: bool, incomplete: bool}
 	 */
-	public function preview(?int $folderId, int $days, int $limit, float $budgetSeconds, bool $personal = false): array {
+	public function preview(?int $folderId, int $days, int $limit, float $budgetSeconds, bool $personal = false, bool $all = false): array {
 		$now = $this->time->getTime();
 		$until = $now + $days * 86400;
 		$ruleSet = $this->rules->snapshot();
@@ -405,7 +406,7 @@ class RetentionRunner {
 		$total = 0;
 
 		if ($folderId === null) {
-			$roots = array_filter($this->roots->getRoots(), fn (RetentionRoot $r) => $r->isHome() === $personal);
+			$roots = array_filter($this->roots->getRoots(), fn (RetentionRoot $r) => $all || $r->isHome() === $personal);
 			$targets = array_map(fn (RetentionRoot $r) => [$r, $r->rootPath], array_values($roots));
 		} else {
 			$located = $this->roots->locate($folderId);
@@ -416,33 +417,39 @@ class RetentionRunner {
 			$targets = [[$located[0], $entry['path']]];
 		}
 
-		$handler = function (RetentionRoot $root, Decision $d) use ($folderId, $until, $limit, $now, &$items, &$total) {
-			if ($folderId === null && !$d->resolution->isDefault()) {
+		$handler = function (RetentionRoot $root, Decision $d) use ($folderId, $all, $until, $limit, $now, &$items, &$total) {
+			if ($folderId === null && !$all && !$d->resolution->isDefault()) {
 				return;
 			}
 			if ($d->expiresAt === null || $d->expiresAt > $until) {
 				return;
 			}
 			$total++;
-			if (count($items) < $limit) {
-				$items[] = [
-					'fileId' => $d->file->fileId,
-					'path' => $root->displayPath($d->file->path),
-					'size' => $d->file->size,
-					'ruleId' => $d->resolution->rule->id,
-					'ruleFolderId' => $d->resolution->sourceFolderId(),
-					'ruleLabel' => $d->resolution->rule->period->label($this->l),
-					// Where the rule comes from – resolved to a name below
-					'ruleSource' => $d->resolution->isDefault()
-						? ($d->resolution->rule->personal ? $this->l->t('Default rule for personal folders') : $this->l->t('Default rule'))
-						: ($d->resolution->sourceFolderId() === $root->rootId ? $this->l->t('“%s”', [$root->label]) : null),
-					'basis' => $d->resolution->rule->basis->value,
-					'referenceDate' => $d->reference?->timestamp,
-					'referenceSource' => $d->reference?->source,
-					'expiresAt' => $d->expiresAt,
-					'overdue' => $d->expiresAt <= $now,
-				];
+			// keep the earliest $limit, not the first ones found: collect up to twice as many,
+			// then cut back by due date
+			if (count($items) >= 2 * $limit) {
+				usort($items, fn ($a, $b) => $a['expiresAt'] <=> $b['expiresAt']);
+				$items = array_slice($items, 0, $limit);
 			}
+			$items[] = [
+				'fileId' => $d->file->fileId,
+				'path' => $root->displayPath($d->file->path),
+				// area key: two areas with the same name stay apart (as in the log)
+				'root' => $root->blockKey(),
+				'size' => $d->file->size,
+				'ruleId' => $d->resolution->rule->id,
+				'ruleFolderId' => $d->resolution->sourceFolderId(),
+				'ruleLabel' => $d->resolution->rule->period->label($this->l),
+				// Where the rule comes from – resolved to a name below
+				'ruleSource' => $d->resolution->isDefault()
+					? ($d->resolution->rule->personal ? $this->l->t('Default rule for personal folders') : $this->l->t('Default rule'))
+					: ($d->resolution->sourceFolderId() === $root->rootId ? $this->l->t('“%s”', [$root->label]) : null),
+				'basis' => $d->resolution->rule->basis->value,
+				'referenceDate' => $d->reference?->timestamp,
+				'referenceSource' => $d->reference?->source,
+				'expiresAt' => $d->expiresAt,
+				'overdue' => $d->expiresAt <= $now,
+			];
 		};
 
 		$incomplete = false;
@@ -453,6 +460,7 @@ class RetentionRunner {
 			}
 		}
 		usort($items, fn ($a, $b) => $a['expiresAt'] <=> $b['expiresAt']);
+		$items = array_slice($items, 0, $limit);
 		$names = $this->fileCache->getNames(array_values(array_filter(array_map(
 			fn ($i) => $i['ruleSource'] === null ? $i['ruleFolderId'] : null, $items))));
 		foreach ($items as &$item) {

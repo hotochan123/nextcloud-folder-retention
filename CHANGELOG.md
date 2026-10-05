@@ -40,6 +40,12 @@ Preparation for the Nextcloud App Store.
   deletion halts until an admin resumes it on the settings page. Guards
   against a period set far too short on a large folder or a wrong server
   clock.
+- "Upcoming" tab next to the log: every file of every area that becomes due
+  within 0, 7, 30, 90 or 365 days, by due day and folder (already due ones
+  first), with rule, reference date and size – calculated live from the
+  current rules, so a rule change shows at once. `/api/preview` takes
+  `folderId=all` (at most 2000 files; the earliest are kept). The log stays
+  the record of what the runs did; the last tab is remembered per browser.
 - Superseded simulated hits: a "would delete" entry that no longer applies is
   marked (new column `superseded_at`) and shown in a group of its own at the
   end of each day ("No longer applies"), with its own count and status
@@ -67,6 +73,8 @@ Preparation for the Nextcloud App Store.
   at once.
 - The table of affected files no longer pushes the due date and size out of
   view when file paths are long.
+- When the preview has more matches than it lists, it lists the earliest due
+  ones, not the first ones found.
 
 ### Changed
 - Texts that are shared by the whole instance — system tag names, the log's

@@ -183,3 +183,48 @@ export function countChips(counts) {
 	]
 	return chips.filter(([key]) => counts[key] > 0).map(([key, label]) => ({ key, tone: CATEGORY_TONE[key], label: label(counts[key]) }))
 }
+
+/** Local calendar day "2026-10-04" of a timestamp (browser time zone) */
+export function localDay(ts) {
+	const d = new Date(ts * 1000)
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/**
+ * Upcoming deletions (preview items) by due day and, within a day, by folder – like the log.
+ * Files already due form the first group ("next run"); folders are area key + parent folder,
+ * so two areas with the same name stay apart.
+ *
+ * @param {Array<{path: string, root: string, size: number, expiresAt: number, overdue: boolean}>} items
+ * @return {Array<{key: string, overdue: boolean, total: number, size: number, folders: Array<{key: string, folder: string, root: string, total: number, size: number, items: Array}>}>}
+ */
+export function groupUpcoming(items) {
+	const days = new Map()
+	for (const item of items) {
+		const dayKey = item.overdue ? 'due' : localDay(item.expiresAt)
+		if (!days.has(dayKey)) {
+			days.set(dayKey, { key: dayKey, overdue: item.overdue, total: 0, size: 0, folders: new Map() })
+		}
+		const day = days.get(dayKey)
+		const slash = item.path.lastIndexOf('/')
+		const folder = slash < 0 ? '' : item.path.slice(0, slash)
+		const folderKey = `${item.root}\n${folder}`
+		if (!day.folders.has(folderKey)) {
+			day.folders.set(folderKey, { key: folderKey, folder, root: item.root, total: 0, size: 0, items: [] })
+		}
+		const f = day.folders.get(folderKey)
+		f.items.push(item)
+		f.total++
+		f.size += item.size
+		day.total++
+		day.size += item.size
+	}
+	return [...days.values()]
+		.sort((a, b) => (a.overdue === b.overdue ? a.key.localeCompare(b.key) : a.overdue ? -1 : 1))
+		.map(day => ({
+			...day,
+			folders: [...day.folders.values()].sort((a, b) => natural.compare(a.folder, b.folder) || a.root.localeCompare(b.root)),
+		}))
+}

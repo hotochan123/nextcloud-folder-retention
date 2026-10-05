@@ -135,9 +135,10 @@ anlassen, bis das Protokoll zeigt, was erwartet wird. Details in der
 	<repository type="git">https://github.com/hotochan123/nextcloud-folder-retention.git</repository>
 	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/01-folder-tree.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/02-preview.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/03-log.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/04-settings.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/05-files-tags.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/03-upcoming.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/04-log.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/05-settings.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/hotochan123/nextcloud-folder-retention/main/screenshots/06-files-tags.png</screenshot>
 	<dependencies>
 		<nextcloud min-version="34" max-version="35"/>
 	</dependencies>

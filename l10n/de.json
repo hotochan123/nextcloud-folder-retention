@@ -12,6 +12,18 @@
             "%n Fehler",
             "%n Fehler"
         ],
+        "_%n file becomes due in the next {days} days (including those already due)._::_%n files become due in the next {days} days (including those already due)._": [
+            "%n Datei wird in den nächsten {days} Tagen fällig (einschließlich bereits fälliger).",
+            "%n Dateien werden in den nächsten {days} Tagen fällig (einschließlich bereits fälliger)."
+        ],
+        "_%n file is already due._::_%n files are already due._": [
+            "%n Datei ist bereits fällig.",
+            "%n Dateien sind bereits fällig."
+        ],
+        "_%n file_::_%n files_": [
+            "%n Datei",
+            "%n Dateien"
+        ],
         "_%n month_::_%n months_": [
             "%n Monat",
             "%n Monate"
@@ -114,6 +126,7 @@
         "All listed files are in subfolders with a different rule (see column “Rule”).": "Alle aufgeführten Dateien liegen in Unterordnern mit anderer Regel (siehe Spalte „Regel“).",
         "All states": "Alle Status",
         "Already due": "Bereits fällig",
+        "Already due – next run": "Bereits fällig – nächster Lauf",
         "Applies to": "Gilt für",
         "Applies to all files in personal folders that are not covered by a folder rule": "Gilt für alle Dateien in persönlichen Ordnern, für die keine Ordnerregel greift",
         "Applies to all files in team folders and workspaces that are not covered by a folder rule": "Gilt für alle Dateien in Team-Ordnern und Arbeitsbereichen, für die keine Ordnerregel greift",
@@ -153,6 +166,7 @@
         "Deletion halted: limit of %d deletions per run reached – resume it in the settings": "Löschen angehalten: Grenze von %d Löschungen pro Lauf erreicht – in den Einstellungen fortsetzen",
         "Deletion halted.": "Löschen angehalten.",
         "Deletion resumed – the next run deletes again": "Löschen fortgesetzt – der nächste Lauf löscht wieder",
+        "Deletions": "Löschungen",
         "Deviating rules below": "Abweichende Regeln darunter",
         "Discard": "Verwerfen",
         "Dry run: nothing is deleted and nothing is logged.": "Dry-Run: es wird nichts gelöscht und nichts protokolliert.",
@@ -189,6 +203,7 @@
         "Files are never deleted automatically.": "Dateien werden nie automatisch gelöscht.",
         "Files directly in “{name}” are never deleted.": "Dateien direkt in „{name}“ werden nie gelöscht.",
         "Files that would be deleted": "Dateien, die gelöscht würden",
+        "Files the daily run will delete under the current rules, by due day and folder. Calculated live – a rule change shows up here at once.": "Dateien, die der tägliche Lauf nach den aktuellen Regeln löschen wird, nach Fälligkeitstag und Ordner. Live berechnet – eine Regeländerung wirkt hier sofort.",
         "Filesystem context for %1$s cannot be verified (view: %2$s) – deletion refused": "Dateisystem-Kontext für %1$s nicht nachweisbar (Sicht: %2$s) – Löschung abgelehnt",
         "Filesystem for %1$s cannot be set up: %2$s": "Dateisystem für %1$s nicht einrichtbar: %2$s",
         "first seen": "zuerst gesehen",
@@ -241,6 +256,7 @@
         "Moved to the trash bin via account %1$s (trash bin/activity name %1$s as the deleting user; folder_retention deleted it)": "In den Papierkorb verschoben über Konto %1$s (Papierkorb/Aktivität nennen %1$s als Löschenden; gelöscht hat folder_retention)",
         "Never delete": "Nie löschen",
         "Next 30 days": "Nächste 30 Tage",
+        "Next 365 days": "Nächste 365 Tage",
         "Next 7 days": "Nächste 7 Tage",
         "Next 90 days": "Nächste 90 Tage",
         "Next day": "Nächster Tag",
@@ -264,6 +280,7 @@
         "Not saved:": "Nicht gespeichert:",
         "Nothing is deleted in locked areas. Find the cause, then lift the lock per area: Administration → Folder retention or": "In gesperrten Bereichen wird nichts gelöscht. Ursache klären, dann Sperre je Bereich aufheben: Verwaltung → Ordner-Aufbewahrung oder",
         "Nothing is deleted; due files are only recorded in the log.": "Es wird nichts gelöscht; fällige Dateien werden nur im Protokoll vermerkt.",
+        "Nothing is due in this time span.": "In diesem Zeitraum wird nichts fällig.",
         "notify must be true or false": "notify muss true oder false sein",
         "Notify the owner one day before deletion": "Besitzer einen Tag vor der Löschung benachrichtigen",
         "Older entries are removed after each daily run. Entries about files that were moved to the trash bin stay as long as the file still exists – the app needs them so that a restored file starts its retention period anew. When an account is deleted, the entries for its personal folder are removed as well.": "Ältere Einträge werden nach jedem täglichen Lauf entfernt. Einträge zu Dateien, die in den Papierkorb verschoben wurden, bleiben, solange die Datei noch existiert – die App braucht sie, damit die Frist einer wiederhergestellten Datei neu beginnt. Wird ein Konto gelöscht, verschwinden auch die Einträge zu seinem persönlichen Ordner.",
@@ -322,12 +339,14 @@
         "Show more ({shown} of {total})": "Mehr anzeigen ({shown} von {total})",
         "Show older days": "Ältere Tage anzeigen",
         "Show the retention period as a tag on files and folders": "Frist als Tag an Dateien und Ordnern anzeigen",
+        "Showing the {count} earliest.": "Angezeigt werden die {count} frühesten.",
         "Showing the first {count}.": "Angezeigt werden die ersten {count}.",
         "simulated %d": "simuliert %d",
         "Simulated hits superseded by a later rule change, run or deletion – they do not lead to a deletion.": "Simulierte Treffer, die eine spätere Regeländerung, ein späterer Lauf oder eine Löschung überholt hat – sie führen zu keiner Löschung.",
         "Simulation": "Simulation",
         "Simulation mode – delete nothing, only log": "Simulationsmodus – nichts löschen, nur protokollieren",
         "Simulation mode active: due files are only written to the log.": "Simulationsmodus aktiv: fällige Dateien werden nur ins Log geschrieben.",
+        "Simulation mode active: nothing is actually deleted; the log records these files as “would delete”.": "Simulationsmodus aktiv: Es wird nichts tatsächlich gelöscht; das Protokoll verzeichnet diese Dateien als „würde gelöscht“.",
         "Simulation mode active: these files would be deleted – nothing is actually deleted.": "Simulationsmodus aktiv: Diese Dateien würden gelöscht – tatsächlich wird nichts gelöscht.",
         "Simulation mode active.": "Simulationsmodus aktiv.",
         "Size": "Größe",
@@ -384,6 +403,7 @@
         "unlimited": "unbegrenzt",
         "unsaved": "ungespeichert",
         "Unsaved change": "Ungespeicherte Änderung",
+        "Upcoming": "Anstehend",
         "upload to Nextcloud": "Ablage in Nextcloud",
         "Upload to Nextcloud": "Ablage in Nextcloud",
         "Usage of the team folder unknown, quota set – not deleted": "Belegung des Team-Ordners unbekannt, Quota gesetzt – nicht gelöscht",

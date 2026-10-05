@@ -266,6 +266,26 @@
 			"%n überholt"
 		],
 		"No longer applies": "Trifft nicht mehr zu",
-		"Simulated hits superseded by a later rule change, run or deletion – they do not lead to a deletion.": "Simulierte Treffer, die eine spätere Regeländerung, ein späterer Lauf oder eine Löschung überholt hat – sie führen zu keiner Löschung."
+		"Simulated hits superseded by a later rule change, run or deletion – they do not lead to a deletion.": "Simulierte Treffer, die eine spätere Regeländerung, ein späterer Lauf oder eine Löschung überholt hat – sie führen zu keiner Löschung.",
+		"Deletions": "Löschungen",
+		"Upcoming": "Anstehend",
+		"_%n file_::_%n files_": [
+			"%n Datei",
+			"%n Dateien"
+		],
+		"_%n file is already due._::_%n files are already due._": [
+			"%n Datei ist bereits fällig.",
+			"%n Dateien sind bereits fällig."
+		],
+		"_%n file becomes due in the next {days} days (including those already due)._::_%n files become due in the next {days} days (including those already due)._": [
+			"%n Datei wird in den nächsten {days} Tagen fällig (einschließlich bereits fälliger).",
+			"%n Dateien werden in den nächsten {days} Tagen fällig (einschließlich bereits fälliger)."
+		],
+		"Files the daily run will delete under the current rules, by due day and folder. Calculated live – a rule change shows up here at once.": "Dateien, die der tägliche Lauf nach den aktuellen Regeln löschen wird, nach Fälligkeitstag und Ordner. Live berechnet – eine Regeländerung wirkt hier sofort.",
+		"Simulation mode active: nothing is actually deleted; the log records these files as “would delete”.": "Simulationsmodus aktiv: Es wird nichts tatsächlich gelöscht; das Protokoll verzeichnet diese Dateien als „würde gelöscht“.",
+		"Next 365 days": "Nächste 365 Tage",
+		"Showing the {count} earliest.": "Angezeigt werden die {count} frühesten.",
+		"Already due – next run": "Bereits fällig – nächster Lauf",
+		"Nothing is due in this time span.": "In diesem Zeitraum wird nichts fällig."
 	}
 }

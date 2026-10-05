@@ -3,7 +3,7 @@
 `run.sh` produces the store images in `screenshots/` from the working tree:
 
 ```sh
-dev/shots/run.sh                 # ~3 min, writes screenshots/01-…05-*.png
+dev/shots/run.sh                 # ~3 min, writes screenshots/01-…06-*.png
 KEEP=1 dev/shots/run.sh          # leave the instance running to look around
 ```
 

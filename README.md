@@ -48,8 +48,11 @@ The full administrator guide — installation, update, downgrade, removal — is
   they are gone for good.
 - **Admin settings page** with a folder tree showing the rule that applies to
   each folder, a preview of the affected files (with the rule each match comes
-  from) and a log grouped by day and folder, with the number of affected files,
-  filters and CSV export.
+  from), and a "Deletions" section with two tabs: **Upcoming** – every file of
+  every area that becomes due within a chosen time span, by due day and folder,
+  calculated live from the current rules – and **Log** – what the runs did,
+  grouped by day and folder, with the number of affected files, filters and
+  CSV export.
 - **Optional system tags** such as "Retention: 2 weeks" on files and folders,
   so users can see the period in the file list. They are purely informative
   and do not control anything.

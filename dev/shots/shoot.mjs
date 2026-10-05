@@ -238,20 +238,30 @@ try {
 	await s.script("document.querySelector('.modal-container button.modal-container__close, [aria-label=\"Close\"]')?.click()")
 	await until(s, "return !document.querySelector('#fr-preview-days')")
 
-	// 03 – the log: newest night open, its folders with their files
+	// 03 – upcoming deletions (default tab): first day open, its folders with their files
+	await clickText(s, '.fr-tabs__tab', 'Upcoming')
 	await scrollToEl(s, "#fr-log-title", 16)
-	await until(s, "return document.querySelectorAll('.fr-folder > summary').length > 0")
-	await s.script("document.querySelectorAll('.fr-day[open] .fr-folder:not([open]) > summary').forEach((e) => e.click())")
-	await until(s, "return document.querySelectorAll('.fr-files__table tbody tr').length > 0")
+	await until(s, "return document.querySelectorAll('#fr-tabpanel-upcoming .fr-folder > summary').length > 0")
+	await s.script("document.querySelectorAll('#fr-tabpanel-upcoming .fr-day[open] .fr-folder:not([open]) > summary').forEach((e) => e.click())")
+	await until(s, "return document.querySelectorAll('#fr-tabpanel-upcoming .fr-files__table tbody tr').length > 0")
+	await report(s, 'upcoming')
+	await shot(s, 'upcoming', 800)
+
+	// 04 – the log: newest night open, its folders with their files
+	await clickText(s, '.fr-tabs__tab', 'Log')
+	await scrollToEl(s, "#fr-log-title", 16)
+	await until(s, "return document.querySelectorAll('#fr-tabpanel-log .fr-folder > summary').length > 0")
+	await s.script("document.querySelectorAll('#fr-tabpanel-log .fr-day[open] .fr-folder:not([open]) > summary').forEach((e) => e.click())")
+	await until(s, "return document.querySelectorAll('#fr-tabpanel-log .fr-files__table tbody tr').length > 0")
 	await report(s, 'log')
 	await shot(s, 'log', 800)
 
-	// 04 – settings (simulation mode, tags)
+	// 05 – settings (simulation mode, tags)
 	await scrollToEl(s, "h2=Settings", 0)
 	await report(s, 'settings')
 	await shot(s, 'settings', 800)
 
-	// 05 – Files app: the informative "Retention: …" tags
+	// 06 – Files app: the informative "Retention: …" tags
 	await s.go(`${HOST}/apps/files/files?dir=/HR/Applications`)
 	await waitFor(s, '.files-list__row', 30000)
 	await until(s, "return document.querySelectorAll('.files-list__system-tag, .files-list__system-tags, [class*=system-tag]').length > 0", [], 15000)

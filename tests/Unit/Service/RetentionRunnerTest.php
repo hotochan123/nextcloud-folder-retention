@@ -13,6 +13,7 @@ use OCA\FolderRetention\Model\PeriodUnit;
 use OCA\FolderRetention\Model\RetentionRoot;
 use OCA\FolderRetention\Model\RetentionRule;
 use OCA\FolderRetention\Model\RuleSet;
+use OCA\FolderRetention\Model\Scope;
 use OCA\FolderRetention\Service\ContentLanguage;
 use OCA\FolderRetention\Service\Deleter;
 use OCA\FolderRetention\Service\Evaluator;
@@ -76,6 +77,8 @@ class RetentionRunnerTest extends TestCase {
 	private ?RuleSet $freshRules = null;
 	/** Retention period of the default rule (null = 1 day) */
 	private ?Period $period = null;
+	/** folder rules of the initial snapshot (folder ID → rule) */
+	private array $folderRules = [];
 	/** @var array<int, string> fileid → status the Deleter should return */
 	private array $deleteResult = [];
 	/** @var list<int> file IDs for which the Deleter throws an exception */
@@ -157,7 +160,7 @@ class RetentionRunnerTest extends TestCase {
 		$rules = $this->createMock(RuleService::class);
 		$snapshots = 0;
 		$rules->method('snapshot')->willReturnCallback(function () use (&$snapshots) {
-			$initial = new RuleSet(new RetentionRule(1, null, $this->period ?? Period::of(1, PeriodUnit::Day), null), []);
+			$initial = new RuleSet(new RetentionRule(1, null, $this->period ?? Period::of(1, PeriodUnit::Day), null), $this->folderRules);
 			return $snapshots++ > 0 && $this->freshRules !== null ? $this->freshRules : $initial;
 		});
 
@@ -882,6 +885,32 @@ class RetentionRunnerTest extends TestCase {
 		$result = $this->runner()->preview(null, 0, 100, 10.0);
 		$this->assertSame(0, $result['total'], 'ohne Grenze zählt „zuerst gesehen“ (jetzt) – nichts fällig');
 		$this->assertSame([], $this->markInit, 'Vorschau setzt nichts');
+	}
+
+	public function testPreviewOfAllAreasIncludesFolderRules(): void {
+		// area A (root folder 100) has its own rule, area B follows the default rule
+		$this->folderRules = [100 => new RetentionRule(5, 100, Period::of(1, PeriodUnit::Day), Scope::Inherit)];
+		$runner = $this->runner();
+
+		$defaultOnly = $runner->preview(null, 7, 100, 10.0);
+		$this->assertSame([21, 22, 23], array_column($defaultOnly['items'], 'fileId'), 'default rule: only area B');
+
+		$all = $runner->preview(null, 7, 100, 10.0, all: true);
+		$this->assertSame(6, $all['total']);
+		$this->assertEqualsCanonicalizing([11, 12, 13, 21, 22, 23], array_column($all['items'], 'fileId'));
+		$this->assertSame('0000000001:000000000100', $all['items'][array_search(11, array_column($all['items'], 'fileId'), true)]['root']);
+	}
+
+	public function testPreviewLimitKeepsTheEarliestDueNotTheFirstFound(): void {
+		$this->files = [
+			1 => [new FileRow(11, 1, 100, '__groupfolders/1/a', 1, null, 300), new FileRow(12, 1, 100, '__groupfolders/1/b', 1, null, 100),
+				new FileRow(13, 1, 100, '__groupfolders/1/c', 1, null, 200)],
+			2 => [new FileRow(21, 2, 200, '__groupfolders/2/a', 1, null, 50), new FileRow(22, 2, 200, '__groupfolders/2/b', 1, null, 400)],
+		];
+		$result = $this->runner()->preview(null, 7, 2, 10.0, all: true);
+		$this->assertSame(5, $result['total']);
+		$this->assertTrue($result['truncated']);
+		$this->assertSame([21, 12], array_column($result['items'], 'fileId'));
 	}
 
 	public function testDryRunDoesNotSetMark(): void {
