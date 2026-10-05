@@ -38,7 +38,7 @@
 							{{ formatTime(e.deletedAt) }}
 						</td>
 						<td v-if="mixed">
-							<StatusChip :tone="CATEGORY_TONE[categoryOf(e.status)]" :label="statusLabel(e.status)" />
+							<StatusChip :tone="CATEGORY_TONE[categoryOf(e.status, e.supersededAt)]" :label="statusLabel(categoryOf(e.status, e.supersededAt) === 'superseded' ? 'superseded' : e.status)" />
 							<!-- "would delete" only exists in simulation – otherwise state the mode as well -->
 							<span v-if="e.mode === 'simulation' && e.status !== 'would_delete'" class="fr-sim">{{ t('folder_retention', 'Simulation') }}</span>
 						</td>
@@ -95,6 +95,7 @@ const mixed = computed(() => countChips(props.counts).length > 1 || props.counts
 const STATUS = {
 	deleted: () => t('folder_retention', 'Deleted'),
 	would_delete: () => t('folder_retention', 'Would delete'),
+	superseded: () => t('folder_retention', 'Would delete – superseded'),
 	skipped_locked: () => t('folder_retention', 'Skipped – locked'),
 	skipped_changed: () => t('folder_retention', 'Skipped – changed'),
 	error: () => t('folder_retention', 'Error'),

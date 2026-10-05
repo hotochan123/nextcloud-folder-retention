@@ -168,10 +168,10 @@ class ApiController extends Controller {
 	}
 
 	#[FrontpageRoute(verb: 'GET', url: '/api/log')]
-	public function log(int $limit = 50, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null, ?string $folder = null, ?string $root = null): JSONResponse {
+	public function log(int $limit = 50, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null, ?string $folder = null, ?string $root = null, ?bool $superseded = null): JSONResponse {
 		$limit = max(1, min(500, $limit));
 		$offset = max(0, $offset);
-		$filter = $this->logFilter($mode, $status, $search, $from, $to, $folder, $root);
+		$filter = $this->logFilter($mode, $status, $search, $from, $to, $folder, $root, $superseded);
 		return new JSONResponse([
 			'entries' => $this->logMapper->findPage($limit, $offset, $filter),
 			'total' => $this->logMapper->count($filter),
@@ -235,6 +235,7 @@ class ApiController extends Controller {
 		$statusLabels = [
 			'deleted' => $l->t('deleted'),
 			'would_delete' => $l->t('would delete'),
+			'superseded' => $l->t('would delete (superseded)'),
 			'skipped_locked' => $l->t('skipped (locked)'),
 			'skipped_changed' => $l->t('skipped (changed)'),
 			'error' => $l->t('error'),
@@ -252,13 +253,13 @@ class ApiController extends Controller {
 		};
 		try {
 			fwrite($buffer, "\xEF\xBB\xBF");
-			fputcsv($buffer, [$l->t('Time'), $l->t('Mode'), $l->t('Status'), $l->t('File'), $l->t('Rule'), $l->t('Rule ID'), $l->t('Reference date'), $l->t('Reference date from'), $l->t('Message'), $l->t('File ID')], ';', '"', '');
+			fputcsv($buffer, [$l->t('Time'), $l->t('Mode'), $l->t('Status'), $l->t('File'), $l->t('Rule'), $l->t('Rule ID'), $l->t('Reference date'), $l->t('Reference date from'), $l->t('Message'), $l->t('File ID'), $l->t('Superseded')], ';', '"', '');
 			$rows = 0;
 			foreach ($this->logMapper->iterate($filter) as $e) {
 				fputcsv($buffer, array_map($cell, [
 					$fmt($e->getDeletedAt()),
 					$e->getMode() === 'real' ? $l->t('real') : $l->t('Simulation'),
-					$statusLabels[$e->getStatus()] ?? $e->getStatus(),
+					$statusLabels[$e->getSupersededAt() !== null && $e->getStatus() === 'would_delete' ? 'superseded' : $e->getStatus()] ?? $e->getStatus(),
 					$e->getPath(),
 					$e->getRuleLabel(),
 					$e->getRuleId(),
@@ -266,6 +267,7 @@ class ApiController extends Controller {
 					$e->getReferenceSource(),
 					$e->getMessage(),
 					$e->getFileId(),
+					$fmt($e->getSupersededAt()),
 				]), ';', '"', '');
 				if (++$rows % 500 === 0) {
 					yield $flush();
@@ -287,15 +289,17 @@ class ApiController extends Controller {
 	/**
 	 * folder: null = all folders, '' = paths without a folder (query parameter "folder=")
 	 * root: area key of the folder group (/api/log/folders), '' = older entries without a key
+	 * superseded: the group's flag – superseded entries are a group of their own
 	 *
-	 * @return array{mode: ?string, status: ?string, search: ?string, from: ?int, to: ?int, folder?: string, root?: string}
+	 * @return array{mode: ?string, status: ?string, search: ?string, from: ?int, to: ?int, folder?: string, root?: string, superseded?: bool}
 	 */
-	private function logFilter(?string $mode, ?string $status, ?string $search, ?int $from, ?int $to, ?string $folder = null, ?string $root = null): array {
+	private function logFilter(?string $mode, ?string $status, ?string $search, ?int $from, ?int $to, ?string $folder = null, ?string $root = null, ?bool $superseded = null): array {
 		$search = trim((string)$search);
 		// root only together with folder (a group of /api/log/folders); a malformed key is ignored
 		$root = $folder !== null && $root !== null && ($root === '' || preg_match('/^\d{10}:\d{12}$/', $root) === 1) ? $root : null;
 		return ($folder === null ? [] : ['folder' => mb_substr($folder, 0, 4000)])
-			+ ($root === null ? [] : ['root' => $root]) + [
+			+ ($root === null ? [] : ['root' => $root])
+			+ ($folder === null || $superseded === null ? [] : ['superseded' => $superseded]) + [
 			'mode' => in_array($mode, ['real', 'simulation'], true) ? $mode : null,
 			'status' => in_array($status, LogSummary::CATEGORIES, true) ? $status : null,
 			'search' => $search === '' ? null : mb_substr($search, 0, 200),

@@ -24,6 +24,10 @@
             "%n übersprungen",
             "%n übersprungen"
         ],
+        "_%n superseded_::_%n superseded_": [
+            "%n überholt",
+            "%n überholt"
+        ],
         "_%n tag assignment removed._::_%n tag assignments removed._": [
             "%n Tag-Zuordnung entfernt.",
             "%n Tag-Zuordnungen entfernt."
@@ -247,6 +251,7 @@
         "No entries.": "Keine Einträge.",
         "No folder": "Ohne Ordner",
         "No lock with key %s": "Keine Sperre mit Schlüssel %s",
+        "No longer applies": "Trifft nicht mehr zu",
         "No longer due after re-checking": "Nach erneuter Prüfung nicht mehr fällig",
         "No permission – has the session expired? Reload the page.": "Keine Berechtigung – ist die Sitzung abgelaufen? Seite neu laden.",
         "No permission via user %1$s: %2$s": "Keine Berechtigung über Benutzer %1$s: %2$s",
@@ -319,6 +324,7 @@
         "Show the retention period as a tag on files and folders": "Frist als Tag an Dateien und Ordnern anzeigen",
         "Showing the first {count}.": "Angezeigt werden die ersten {count}.",
         "simulated %d": "simuliert %d",
+        "Simulated hits superseded by a later rule change, run or deletion – they do not lead to a deletion.": "Simulierte Treffer, die eine spätere Regeländerung, ein späterer Lauf oder eine Löschung überholt hat – sie führen zu keiner Löschung.",
         "Simulation": "Simulation",
         "Simulation mode – delete nothing, only log": "Simulationsmodus – nichts löschen, nur protokollieren",
         "Simulation mode active: due files are only written to the log.": "Simulationsmodus aktiv: fällige Dateien werden nur ins Log geschrieben.",
@@ -340,6 +346,7 @@
         "Subfolders continue to inherit from the default rule ({period}).": "Unterordner erben weiter von der Standardregel ({period}).",
         "Subfolders continue to inherit from the default rule for personal folders ({period}).": "Unterordner erben weiter von der Standardregel für persönliche Ordner ({period}).",
         "Subfolders too": "Auch Unterordner",
+        "Superseded": "Überholt",
         "Sync retention tags on files and folders now (deletes nothing)": "Aufbewahrungs-Tags an Dateien und Ordnern sofort abgleichen (löscht nichts)",
         "Synced: %1$d files evaluated, %2$d tags set, %3$d removed.": "Abgeglichen: %1$d Dateien bewertet, %2$d Tags gesetzt, %3$d entfernt.",
         "tags +%1$d/−%2$d": "Tags +%1$d/−%2$d",
@@ -384,7 +391,9 @@
         "While deletion is halted, due files are not deleted either. When simulation mode is switched off for the first time, everything that has accumulated is due at once – set the limit above that number (see the simulation log) or resume deletion after checking.": "Solange das Löschen angehalten ist, werden auch fällige Dateien nicht gelöscht. Beim ersten Ausschalten des Simulationsmodus ist alles Aufgelaufene auf einmal fällig – die Grenze darüber ansetzen (siehe Simulationsprotokoll) oder das Löschen nach Prüfung fortsetzen.",
         "Workspace account": "Arbeitsbereich-Konto",
         "would delete": "würde löschen",
-        "Would delete": "Würde löschen"
+        "Would delete": "Würde löschen",
+        "Would delete – superseded": "Würde löschen – überholt",
+        "would delete (superseded)": "würde löschen (überholt)"
     },
     "pluralForm": "nplurals=2; plural=(n != 1);"
 }

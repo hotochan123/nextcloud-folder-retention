@@ -16,7 +16,7 @@ use PHPUnit\Framework\TestCase;
  * parent folder, status grouped as in the status filter.
  */
 class LogSummaryTest extends TestCase {
-	/** @var list<array{path: string, status: string, deleted_at: int}> newest first, like iterateSummary() */
+	/** @var list<array{path: string, status: string, deleted_at: int, root_key: ?string, superseded: bool}> newest first, like iterateSummary() */
 	private array $rows = [];
 	/** @var list<array<string, mixed>> */
 	private array $filters = [];
@@ -32,8 +32,8 @@ class LogSummaryTest extends TestCase {
 		return new LogSummary($mapper, $settings);
 	}
 
-	private function row(string $path, string $status, string $at, string $tz = 'Europe/Berlin'): array {
-		return ['path' => $path, 'status' => $status, 'deleted_at' => (new DateTimeImmutable($at, new DateTimeZone($tz)))->getTimestamp()];
+	private function row(string $path, string $status, string $at, string $tz = 'Europe/Berlin', bool $superseded = false): array {
+		return ['path' => $path, 'status' => $status, 'deleted_at' => (new DateTimeImmutable($at, new DateTimeZone($tz)))->getTimestamp(), 'root_key' => null, 'superseded' => $superseded];
 	}
 
 	public function testDaysAreCountedInInstanceTimezoneNewestFirst(): void {
@@ -48,8 +48,8 @@ class LogSummaryTest extends TestCase {
 		$this->assertSame(2, $result['total']);
 		$this->assertSame(['2026-10-04', '2026-10-03'], array_column($result['days'], 'date'));
 		$this->assertSame(2, $result['days'][0]['total']);
-		$this->assertSame(['deleted' => 0, 'would_delete' => 1, 'skipped' => 1, 'error' => 0], $result['days'][0]['counts']);
-		$this->assertSame(['deleted' => 1, 'would_delete' => 0, 'skipped' => 0, 'error' => 1], $result['days'][1]['counts']);
+		$this->assertSame(['deleted' => 0, 'would_delete' => 1, 'superseded' => 0, 'skipped' => 1, 'error' => 0], $result['days'][0]['counts']);
+		$this->assertSame(['deleted' => 1, 'would_delete' => 0, 'superseded' => 0, 'skipped' => 0, 'error' => 1], $result['days'][1]['counts']);
 	}
 
 	public function testDayBoundsCoverTheLocalDayIncludingDaylightSavingChange(): void {
@@ -81,7 +81,7 @@ class LogSummaryTest extends TestCase {
 		$folders = $this->summary()->folders(['from' => 1, 'to' => 2]);
 		$this->assertSame(['', 'Team/Folder 2', 'Team/Folder 2/sub', 'Team/Folder 10'], array_column($folders, 'folder'));
 		$this->assertSame(2, $folders[1]['total']);
-		$this->assertSame(['deleted' => 0, 'would_delete' => 1, 'skipped' => 1, 'error' => 0], $folders[1]['counts']);
+		$this->assertSame(['deleted' => 0, 'would_delete' => 1, 'superseded' => 0, 'skipped' => 1, 'error' => 0], $folders[1]['counts']);
 		$this->assertSame(1, $folders[2]['counts']['error']);
 		$this->assertSame([['from' => 1, 'to' => 2]], $this->filters);
 	}
@@ -100,7 +100,31 @@ class LogSummaryTest extends TestCase {
 		$this->assertSame([1, 1, 2], array_column($folders, 'total'));
 	}
 
+	public function testSupersededHitsAreCountedAndGroupedSeparatelyAfterTheOthers(): void {
+		$this->rows = [
+			$this->row('Docs/a.pdf', 'would_delete', '2026-10-04 02:00'),
+			$this->row('Docs/b.pdf', 'would_delete', '2026-10-04 02:00', superseded: true),
+			$this->row('Docs/c.pdf', 'would_delete', '2026-10-04 02:00', superseded: true),
+			$this->row('Zeta/d.pdf', 'deleted', '2026-10-04 02:00'),
+			$this->row('Alpha/e.pdf', 'would_delete', '2026-10-04 02:00', superseded: true),
+		];
+		$day = $this->summary()->days([], 10, 0)['days'][0];
+		$this->assertSame(['deleted' => 1, 'would_delete' => 1, 'superseded' => 3, 'skipped' => 0, 'error' => 0], $day['counts']);
+
+		$folders = $this->summary()->folders(['from' => 1, 'to' => 2]);
+		$this->assertSame(
+			[['Docs', false], ['Zeta', false], ['Alpha', true], ['Docs', true]],
+			array_map(fn (array $f) => [$f['folder'], $f['superseded']], $folders),
+			'current groups first, then the superseded ones – each sorted by folder',
+		);
+		$this->assertSame(2, $folders[3]['counts']['superseded']);
+		$this->assertSame(0, $folders[3]['counts']['would_delete']);
+	}
+
 	public function testFolderOfAndCategory(): void {
+		$this->assertSame('would_delete', LogSummary::category('would_delete'));
+		$this->assertSame('superseded', LogSummary::category('would_delete', true));
+		$this->assertSame('deleted', LogSummary::category('deleted', true), 'only a simulated hit can be superseded');
 		$this->assertSame('a/b', LogSummary::folderOf('a/b/c.txt'));
 		$this->assertSame('', LogSummary::folderOf('c.txt'));
 		$this->assertSame('skipped', LogSummary::category('skipped_blocked'));

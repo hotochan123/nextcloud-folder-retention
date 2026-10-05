@@ -11,12 +11,13 @@ use OCP\IDBConnection;
 /**
  * @extends QBMapper<LogEntry>
  *
- * Filters (all optional): mode (real|simulation – API and CSV only, the UI does not filter by it), status (deleted|would_delete|skipped|error –
- * "error" includes permanent deletions),
+ * Filters (all optional): mode (real|simulation – API and CSV only, the UI does not filter by it), status (deleted|would_delete|superseded|skipped|error –
+ * "error" includes permanent deletions, "would_delete" only current ones, "superseded" the simulated hits that no longer apply),
  * search (part of the path), from/to (Unix timestamps, inclusive),
  * folder (exactly this parent folder of the path, without subfolders; '' = paths without a folder),
- * root (area key RetentionRoot::blockKey(); '' = older entries without a key).
- * @psalm-type LogFilter = array{mode?: ?string, status?: ?string, search?: ?string, from?: ?int, to?: ?int, folder?: ?string, root?: ?string}
+ * root (area key RetentionRoot::blockKey(); '' = older entries without a key),
+ * superseded (true = only superseded entries, false = none – the folder groups of the overview keep them apart).
+ * @psalm-type LogFilter = array{mode?: ?string, status?: ?string, search?: ?string, from?: ?int, to?: ?int, folder?: ?string, root?: ?string, superseded?: ?bool}
  */
 class LogMapper extends QBMapper {
 	public function __construct(IDBConnection $db) {
@@ -64,11 +65,17 @@ class LogMapper extends QBMapper {
 	 * Only the columns for the per-day and per-folder overview, in chunks, newest first.
 	 *
 	 * @param LogFilter $filter
-	 * @return \Generator<array{path: string, status: string, deleted_at: int, root_key: ?string}>
+	 * @return \Generator<array{path: string, status: string, deleted_at: int, root_key: ?string, superseded: bool}>
 	 */
 	public function iterateSummary(array $filter = [], int $chunk = 5000): \Generator {
-		foreach ($this->chunks(['id', 'path', 'status', 'deleted_at', 'root_key'], $filter, $chunk) as $row) {
-			yield ['path' => (string)$row['path'], 'status' => (string)$row['status'], 'deleted_at' => (int)$row['deleted_at'], 'root_key' => $row['root_key'] === null ? null : (string)$row['root_key']];
+		foreach ($this->chunks(['id', 'path', 'status', 'deleted_at', 'root_key', 'superseded_at'], $filter, $chunk) as $row) {
+			yield [
+				'path' => (string)$row['path'],
+				'status' => (string)$row['status'],
+				'deleted_at' => (int)$row['deleted_at'],
+				'root_key' => $row['root_key'] === null ? null : (string)$row['root_key'],
+				'superseded' => $row['superseded_at'] !== null,
+			];
 		}
 	}
 
@@ -114,6 +121,12 @@ class LogMapper extends QBMapper {
 		if (!empty($filter['status'])) {
 			if ($filter['status'] === 'skipped') {
 				$qb->andWhere($qb->expr()->like('status', $qb->createNamedParameter('skipped%')));
+			} elseif ($filter['status'] === 'superseded') {
+				$qb->andWhere($qb->expr()->eq('status', $qb->createNamedParameter(LogEntry::STATUS_WOULD_DELETE)))
+					->andWhere($qb->expr()->isNotNull('superseded_at'));
+			} elseif ($filter['status'] === LogEntry::STATUS_WOULD_DELETE) {
+				$qb->andWhere($qb->expr()->eq('status', $qb->createNamedParameter(LogEntry::STATUS_WOULD_DELETE)))
+					->andWhere($qb->expr()->isNull('superseded_at'));
 			} elseif ($filter['status'] === LogEntry::STATUS_ERROR) {
 				$qb->andWhere($qb->expr()->in('status', $qb->createNamedParameter([LogEntry::STATUS_ERROR, LogEntry::STATUS_DELETED_FINAL], IQueryBuilder::PARAM_STR_ARRAY)));
 			} else {
@@ -138,6 +151,9 @@ class LogMapper extends QBMapper {
 			$qb->andWhere($filter['root'] === ''
 				? $qb->expr()->isNull('root_key')
 				: $qb->expr()->eq('root_key', $qb->createNamedParameter($filter['root'])));
+		}
+		if (isset($filter['superseded'])) {
+			$qb->andWhere($filter['superseded'] ? $qb->expr()->isNotNull('superseded_at') : $qb->expr()->isNull('superseded_at'));
 		}
 		if (isset($filter['folder'])) {
 			$prefix = $filter['folder'] === '' ? '' : $this->db->escapeLikeParameter($filter['folder']) . '/';
@@ -335,6 +351,7 @@ class LogMapper extends QBMapper {
 			->andWhere($qb->expr()->eq('rule_label', $qb->createNamedParameter($ruleLabel)))
 			->andWhere($qb->expr()->eq('reference_date', $qb->createNamedParameter($referenceDate, IQueryBuilder::PARAM_INT)))
 			->andWhere($qb->expr()->eq('reference_source', $qb->createNamedParameter($referenceSource)))
+			->andWhere($qb->expr()->isNull('superseded_at'))
 			->setMaxResults(1);
 		if ($ruleId === null) {
 			$qb->andWhere($qb->expr()->isNull('rule_id'));
@@ -345,5 +362,161 @@ class LogMapper extends QBMapper {
 		$found = $result->fetchOne() !== false;
 		$result->closeCursor();
 		return $found;
+	}
+
+	/**
+	 * Marks the current "would delete" entries of these files as superseded – the run found the
+	 * file not due (any more), deleted it for real, or is about to log a new evaluation of it.
+	 *
+	 * @param array<int> $fileIds
+	 * @return int number of marked entries
+	 */
+	public function supersede(array $fileIds, int $at): int {
+		$n = 0;
+		foreach (array_chunk(array_values(array_unique($fileIds)), 1000) as $chunk) {
+			$qb = $this->supersedeQuery($at);
+			$qb->andWhere($qb->expr()->in('file_id', $qb->createNamedParameter($chunk, IQueryBuilder::PARAM_INT_ARRAY)));
+			$n += $qb->executeStatement();
+		}
+		return $n;
+	}
+
+	/**
+	 * Marks the current "would delete" entries of a rule that was changed or removed: they were
+	 * evaluated with its old setting.
+	 *
+	 * @param int|null $before only entries written before this time (null = all)
+	 * @return int number of marked entries
+	 */
+	public function supersedeByRule(int $ruleId, int $at, ?int $before = null): int {
+		$qb = $this->supersedeQuery($at);
+		$qb->andWhere($qb->expr()->eq('rule_id', $qb->createNamedParameter($ruleId, IQueryBuilder::PARAM_INT)));
+		if ($before !== null) {
+			$qb->andWhere($qb->expr()->lt('deleted_at', $qb->createNamedParameter($before, IQueryBuilder::PARAM_INT)));
+		}
+		return $qb->executeStatement();
+	}
+
+	/**
+	 * For entries from before superseded_at existed (migration): rule changed after the entry
+	 * (updated_at) or no longer there. A rule saved without a change counts as changed – the next
+	 * simulation run logs a still-due file again (hasSimulated() skips superseded entries).
+	 *
+	 * @return int number of marked entries
+	 */
+	public function supersedeByChangedRules(int $at): int {
+		$rules = [];
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('id', 'updated_at')->from('folder_retention_rules');
+		$result = $qb->executeQuery();
+		while ($row = $result->fetch()) {
+			$rules[(int)$row['id']] = (int)$row['updated_at'];
+		}
+		$result->closeCursor();
+
+		$qb = $this->db->getQueryBuilder();
+		$qb->selectDistinct('rule_id')->from($this->getTableName())
+			->where($qb->expr()->eq('status', $qb->createNamedParameter(LogEntry::STATUS_WOULD_DELETE)))
+			->andWhere($qb->expr()->isNull('superseded_at'))
+			->andWhere($qb->expr()->isNotNull('rule_id'));
+		$result = $qb->executeQuery();
+		$used = [];
+		while (($id = $result->fetchOne()) !== false) {
+			$used[] = (int)$id;
+		}
+		$result->closeCursor();
+
+		$n = 0;
+		foreach ($used as $ruleId) {
+			$n += isset($rules[$ruleId])
+				? $this->supersedeByRule($ruleId, $at, $rules[$ruleId])
+				: $this->supersedeByRule($ruleId, $at);
+		}
+		return $n;
+	}
+
+	/**
+	 * Marks current "would delete" entries whose file is gone – deleted, or only left in a trash bin
+	 * (it keeps its file ID there): no run evaluates it again. Once per completed cycle
+	 * (LogRetention::purge).
+	 *
+	 * @return int number of marked entries
+	 */
+	public function supersedeMissing(int $at, int $chunk = 1000): int {
+		$n = 0;
+		$afterId = 0;
+		while (true) {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('id', 'file_id')->from($this->getTableName())
+				->where($qb->expr()->eq('status', $qb->createNamedParameter(LogEntry::STATUS_WOULD_DELETE)))
+				->andWhere($qb->expr()->isNull('superseded_at'))
+				->andWhere($qb->expr()->gt('id', $qb->createNamedParameter($afterId, IQueryBuilder::PARAM_INT)))
+				->orderBy('id', 'ASC')
+				->setMaxResults($chunk);
+			$result = $qb->executeQuery();
+			$rows = $result->fetchAll();
+			$result->closeCursor();
+			if ($rows === []) {
+				return $n;
+			}
+			$afterId = (int)$rows[count($rows) - 1]['id'];
+			$existing = $this->liveFileIds(array_map(static fn (array $row): int => (int)$row['file_id'], $rows));
+			$ids = [];
+			foreach ($rows as $row) {
+				if (!isset($existing[(int)$row['file_id']])) {
+					$ids[] = (int)$row['id'];
+				}
+			}
+			if ($ids !== []) {
+				$qb = $this->supersedeQuery($at);
+				$qb->andWhere($qb->expr()->in('id', $qb->createNamedParameter($ids, IQueryBuilder::PARAM_INT_ARRAY)));
+				$n += $qb->executeStatement();
+			}
+			if (count($rows) < $chunk) {
+				return $n;
+			}
+		}
+	}
+
+	/** Where trash bins and versions keep files: home storage, team folders (shared or own storage) */
+	private const NOT_LIVE = ['files_trashbin/', 'files_versions/', '__groupfolders/trash/', '__groupfolders/versions/', 'trash/', 'versions/'];
+
+	/**
+	 * @param array<int> $fileIds
+	 * @return array<int, true> those of $fileIds that exist outside trash bins and versions
+	 */
+	private function liveFileIds(array $fileIds): array {
+		$out = [];
+		foreach (array_chunk(array_values(array_unique($fileIds)), 1000) as $chunk) {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('fileid', 'path')->from('filecache')
+				->where($qb->expr()->in('fileid', $qb->createNamedParameter($chunk, IQueryBuilder::PARAM_INT_ARRAY)));
+			$result = $qb->executeQuery();
+			while ($row = $result->fetch()) {
+				$path = (string)$row['path'];
+				$live = true;
+				foreach (self::NOT_LIVE as $prefix) {
+					if (str_starts_with($path, $prefix)) {
+						$live = false;
+						break;
+					}
+				}
+				if ($live) {
+					$out[(int)$row['fileid']] = true;
+				}
+			}
+			$result->closeCursor();
+		}
+		return $out;
+	}
+
+	/** UPDATE of the current "would delete" entries to superseded; the caller narrows it down */
+	private function supersedeQuery(int $at): IQueryBuilder {
+		$qb = $this->db->getQueryBuilder();
+		$qb->update($this->getTableName())
+			->set('superseded_at', $qb->createNamedParameter($at, IQueryBuilder::PARAM_INT))
+			->where($qb->expr()->eq('status', $qb->createNamedParameter(LogEntry::STATUS_WOULD_DELETE)))
+			->andWhere($qb->expr()->isNull('superseded_at'));
+		return $qb;
 	}
 }

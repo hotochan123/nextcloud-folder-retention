@@ -4,7 +4,7 @@
 
 <script setup>
 defineProps({
-	/** delete | sim | skip | error, see CATEGORY_TONE */
+	/** delete | sim | old | skip | error, see CATEGORY_TONE */
 	tone: { type: String, required: true },
 	label: { type: String, required: true },
 })
@@ -26,6 +26,12 @@ defineProps({
 	&--sim {
 		border: 1px solid var(--fr-delete);
 		color: var(--fr-delete-text-outline);
+	}
+
+	// superseded simulated hit: like "would delete", but faded out – it no longer applies
+	&--old {
+		border: 1px dashed var(--color-border-maxcontrast);
+		color: var(--color-text-maxcontrast);
 	}
 
 	&--skip {

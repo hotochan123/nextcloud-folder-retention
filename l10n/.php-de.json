@@ -146,7 +146,9 @@
         "“%s”": "„%s“",
         "Invalid log retention": "Ungültige Aufbewahrungsdauer für das Protokoll",
         "Invalid deletion limit": "Ungültige Löschgrenze",
-        "Deletion halted: limit of %d deletions per run reached – resume it in the settings": "Löschen angehalten: Grenze von %d Löschungen pro Lauf erreicht – in den Einstellungen fortsetzen"
+        "Deletion halted: limit of %d deletions per run reached – resume it in the settings": "Löschen angehalten: Grenze von %d Löschungen pro Lauf erreicht – in den Einstellungen fortsetzen",
+        "would delete (superseded)": "würde löschen (überholt)",
+        "Superseded": "Überholt"
     },
     "pluralForm": "nplurals=2; plural=(n != 1);"
 }

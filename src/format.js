@@ -132,14 +132,18 @@ export function unblockPayload(entries) {
 	return { unblock: entries.map(b => ({ key: b.key, at: b.at })) }
 }
 
-/** Status group of a log entry, like LogSummary::category() in the backend: anything unknown counts as an error */
-export function categoryOf(status) {
+/**
+ * Status group of a log entry, like LogSummary::category() in the backend: anything unknown counts as an error.
+ * A "would delete" with supersededAt no longer applies (rule changed, file no longer due, deleted or gone).
+ */
+export function categoryOf(status, supersededAt = null) {
+	if (status === 'would_delete' && supersededAt) return 'superseded'
 	if (status === 'deleted' || status === 'would_delete') return status
 	return status.startsWith('skipped') ? 'skipped' : 'error'
 }
 
 /** Badge tone per status group */
-export const CATEGORY_TONE = { error: 'error', deleted: 'delete', would_delete: 'sim', skipped: 'skip' }
+export const CATEGORY_TONE = { error: 'error', deleted: 'delete', would_delete: 'sim', superseded: 'old', skipped: 'skip' }
 
 export function baseName(path) {
 	return path.slice(path.lastIndexOf('/') + 1)
@@ -166,7 +170,7 @@ export function formatTime(ts) {
 /**
  * Counts per status group as badges, only those present.
  *
- * @param {{deleted: number, would_delete: number, skipped: number, error: number}} counts
+ * @param {{deleted: number, would_delete: number, superseded?: number, skipped: number, error: number}} counts
  * @return {Array<{key: string, label: string, tone: string}>}
  */
 export function countChips(counts) {
@@ -175,6 +179,7 @@ export function countChips(counts) {
 		['deleted', c => n('folder_retention', '%n deleted', '%n deleted', c)],
 		['would_delete', c => n('folder_retention', '%n would be deleted', '%n would be deleted', c)],
 		['skipped', c => n('folder_retention', '%n skipped', '%n skipped', c)],
+		['superseded', c => n('folder_retention', '%n superseded', '%n superseded', c)],
 	]
 	return chips.filter(([key]) => counts[key] > 0).map(([key, label]) => ({ key, tone: CATEGORY_TONE[key], label: label(counts[key]) }))
 }

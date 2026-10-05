@@ -31,6 +31,8 @@ class RetentionRunner {
 	private const LEASE_RENEW = 60;
 	/** Statuses whose identical repetition updates the previous log entry (see log()) */
 	private const REPEATABLE = [LogEntry::STATUS_ERROR, LogEntry::STATUS_SKIPPED_LOCKED, LogEntry::STATUS_SKIPPED_CHANGED];
+	/** Outcomes after which an earlier simulated "would delete" of the file no longer applies */
+	private const SUPERSEDES = [LogEntry::STATUS_DELETED, LogEntry::STATUS_DELETED_FINAL, LogEntry::STATUS_SKIPPED_CHANGED];
 
 	public function __construct(
 		private RootProvider $roots,
@@ -55,6 +57,8 @@ class RetentionRunner {
 
 	/** Tag sync disabled for this run (after an error) */
 	private bool $tagsFailed = false;
+	/** files of the current batch whose "would delete" entries are superseded (flushSuperseded) */
+	private array $superseded = [];
 	/** held run lock: token and when it was last renewed */
 	private ?string $leaseToken = null;
 	private string $leaseHolder = '';
@@ -285,6 +289,7 @@ class RetentionRunner {
 		} catch (Throwable $e) {
 			$this->logger->error('folder_retention: trash bin verification at the end of the run failed', ['exception' => $e]);
 		}
+		$this->flushSuperseded();
 		$this->deleter->releaseContext();
 		if ($this->leaseToken !== null) {
 			try {
@@ -488,6 +493,7 @@ class RetentionRunner {
 			$batch = $this->fileCache->fetchFiles($root->storageId, $pathPrefix, $after, $batchSize, $withTags);
 			if ($batch === []) {
 				$this->flushTags($tags, $stats);
+				$this->flushSuperseded();
 				return null;
 			}
 			$this->fileCache->prefetch(array_map(fn ($f) => $f->isFolder ? $f->fileId : $f->parentId, $batch));
@@ -518,10 +524,29 @@ class RetentionRunner {
 
 				if ($deadline !== null && microtime(true) >= $deadline) {
 					$this->flushTags($tags, $stats);
+					$this->flushSuperseded();
 					return $after;
 				}
 			}
 			$this->flushTags($tags, $stats);
+			$this->flushSuperseded();
+		}
+	}
+
+	/**
+	 * Marks the "would delete" entries of the files collected in act() as superseded – one query
+	 * per batch. Bookkeeping only: an error is logged, the run carries on.
+	 */
+	private function flushSuperseded(): void {
+		if ($this->superseded === []) {
+			return;
+		}
+		$fileIds = $this->superseded;
+		$this->superseded = [];
+		try {
+			$this->logMapper->supersede($fileIds, $this->time->getTime());
+		} catch (Throwable $e) {
+			$this->logger->warning('folder_retention: marking superseded log entries failed', ['exception' => $e]);
 		}
 	}
 
@@ -610,12 +635,19 @@ class RetentionRunner {
 	 */
 	private function act(RetentionRoot $root, Decision $d, RuleSet $ruleSet, bool $simulate, bool $dryRun, int $now, RunStats $stats): array {
 		if (!$d->isDueAt($now)) {
+			if (!$dryRun) {
+				$this->superseded[] = $d->file->fileId;
+			}
 			return [null, null];
 		}
 		$stats->due++;
 		$simulate = $simulate || $this->simulationSwitched;
 		try {
-			return $this->actDue($root, $d, $simulate, $dryRun, $now, $stats);
+			$result = $this->actDue($root, $d, $simulate, $dryRun, $now, $stats);
+			if (!$dryRun && in_array($result[0], self::SUPERSEDES, true)) {
+				$this->superseded[] = $d->file->fileId;
+			}
+			return $result;
 		} catch (RunLockLostException $e) {
 			throw $e;
 		} catch (Throwable $e) {
@@ -647,6 +679,8 @@ class RetentionRunner {
 		if ($simulate) {
 			$stats->simulated++;
 			if (!$this->logMapper->hasSimulated($d->file->fileId, $rule->id, $rule->logLabel($this->language->l10n()), $d->reference->timestamp, $d->reference->source)) {
+				// a new evaluation (other rule, period or reference date) replaces the previous one
+				$this->logMapper->supersede([$d->file->fileId], $now);
 				$this->log($root, $d, LogEntry::MODE_SIMULATION, LogEntry::STATUS_WOULD_DELETE, null, $now);
 			}
 			return [LogEntry::STATUS_WOULD_DELETE, null];

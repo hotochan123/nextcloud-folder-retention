@@ -40,6 +40,14 @@ Preparation for the Nextcloud App Store.
   deletion halts until an admin resumes it on the settings page. Guards
   against a period set far too short on a large folder or a wrong server
   clock.
+- Superseded simulated hits: a "would delete" entry that no longer applies is
+  marked (new column `superseded_at`) and shown in a group of its own at the
+  end of each day ("No longer applies"), with its own count and status
+  filter. It is marked as soon as its rule is changed or removed, when a later
+  run finds the file not due or deletes it for real, and after a cycle when
+  the file is gone or only left in a trash bin. On update, entries whose rule
+  has changed or been removed since are marked right away. The CSV export
+  names them as well (status and column "Superseded").
 
 ### Fixed
 - Error labels in the log were white on a light background and hard to read.

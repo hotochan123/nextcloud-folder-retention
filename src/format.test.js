@@ -57,6 +57,8 @@ describe('German (l10n/.js-de.json)', () => {
 		assert.deepEqual(chips.map(c => c.label), ['1 Fehler', '2 würden gelöscht', '1 übersprungen'])
 		assert.deepEqual(chips.map(c => c.tone), ['error', 'sim', 'skip'])
 		assert.equal(countChips({ deleted: 1, would_delete: 1, skipped: 0, error: 0 })[1].label, '1 würde gelöscht')
+		const old = countChips({ deleted: 0, would_delete: 0, superseded: 3, skipped: 0, error: 0 })
+		assert.deepEqual(old.map(c => [c.label, c.tone]), [['3 überholt', 'old']])
 	})
 })
 
@@ -78,6 +80,10 @@ test('Lifting a block sends only the displayed areas with timestamp', () => {
 
 test('Log: file name and status group like LogSummary::category()', () => {
 	assert.equal(categoryOf('would_delete'), 'would_delete')
+	assert.equal(categoryOf('would_delete', null), 'would_delete')
+	assert.equal(categoryOf('would_delete', 1759650000), 'superseded')
+	// only a simulated hit can be superseded
+	assert.equal(categoryOf('deleted', 1759650000), 'deleted')
 	assert.equal(categoryOf('skipped_locked'), 'skipped')
 	assert.equal(categoryOf('deleted_final'), 'error')
 	assert.equal(categoryOf('something_new'), 'error')

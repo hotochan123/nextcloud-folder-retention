@@ -258,6 +258,14 @@
 		"Deletion halted.": "Löschen angehalten.",
 		"On {date}, a run reached the limit of {limit} deletions per run. Nothing is deleted until you resume – check the log (status “Deleted”) and the rules first.": "Am {date} hat ein Lauf die Grenze von {limit} Löschungen pro Lauf erreicht. Bis zum Fortsetzen wird nichts gelöscht – vorher Protokoll (Status „Gelöscht“) und Regeln prüfen.",
 		"Resume deletion": "Löschen fortsetzen",
-		"Deletion resumed – the next run deletes again": "Löschen fortgesetzt – der nächste Lauf löscht wieder"
+		"Deletion resumed – the next run deletes again": "Löschen fortgesetzt – der nächste Lauf löscht wieder",
+		"Superseded": "Überholt",
+		"Would delete – superseded": "Würde löschen – überholt",
+		"_%n superseded_::_%n superseded_": [
+			"%n überholt",
+			"%n überholt"
+		],
+		"No longer applies": "Trifft nicht mehr zu",
+		"Simulated hits superseded by a later rule change, run or deletion – they do not lead to a deletion.": "Simulierte Treffer, die eine spätere Regeländerung, ein späterer Lauf oder eine Löschung überholt hat – sie führen zu keiner Löschung."
 	}
 }

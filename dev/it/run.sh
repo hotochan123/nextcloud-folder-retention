@@ -1417,7 +1417,7 @@ s32() {
 	p2=$(paths 'S32%20100%25_%5Bx%5D%2Fsub')
 	p3=$(paths 'S32%201000x%5Bx%5D')
 	root=$(api 'log?folder=' | grep -o '"path":"s32-loose.txt"' || true)
-	folders=$(api "log/folders?search=S32&from=$((at - 3600))&to=$((at + 3600))" | sed 's/,"root":"[^"]*"//g' | grep -o '"folder":"[^"]*","total":[0-9]*' | tr '\n' ' ' || true)
+	folders=$(api "log/folders?search=S32&from=$((at - 3600))&to=$((at + 3600))" | sed -E 's/,"root":"[^"]*"|,"superseded":(true|false)//g' | grep -o '"folder":"[^"]*","total":[0-9]*' | tr '\n' ' ' || true)
 	# without a time range the count would read the whole log – rejected
 	unbounded=$(docker exec "$C" curl -s -o /dev/null -w '%{http_code}' -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/log/folders?search=S32")
 	days=$(api 'log/days?search=s32' | grep -o '"total":[0-9]*,"counts"' | head -1)
@@ -1553,7 +1553,7 @@ s36() {
 	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status, root_key) VALUES (990403, 1, 'S36 Archive/c.txt', 's36', 1, 'upload', ?, 'simulation', 'would_delete', '0000000001:000000000200')" "$at"
 	api() { docker exec "$C" curl -sf -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/$1"; }
 	local groups files keyed headers body rows ok=1
-	groups=$(api "log/folders?search=s36&from=$((at - 3600))&to=$((at + 3600))" | grep -o '"folder":"S36 Archive","root":"[0-9:]*","total":[0-9]*' | sed 's/"folder":"S36 Archive",//' | tr '\n' ' ' || true)
+	groups=$(api "log/folders?search=s36&from=$((at - 3600))&to=$((at + 3600))" | sed -E 's/,"superseded":(true|false)//g' | grep -o '"folder":"S36 Archive","root":"[0-9:]*","total":[0-9]*' | sed 's/"folder":"S36 Archive",//' | tr '\n' ' ' || true)
 	files=$(api "log?search=s36&folder=S36%20Archive&root=0000000001:000000000200" | grep -o '"path":"[^"]*"' | tr '\n' ' ' || true)
 	keyed=$(sql "SELECT COUNT(*) FROM oc_folder_retention_log WHERE rule_label <> 's36' AND root_key IS NOT NULL")
 	headers=$(docker exec "$C" curl -sf -D - -o /tmp/s36.csv -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/log/export?search=s36" | tr -d '\r' | grep -iE '^content-(type|disposition):' | paste -sd' ' || true)
@@ -1578,6 +1578,71 @@ s36() {
 		result PASS S36 "$note"
 	else
 		result FAIL S36 "$note"
+	fi
+}
+
+# S37 superseded simulated hits: a rule change marks them at once, a later run (file deleted for
+# real) and a file gone to the trash bin (purge after a cycle) as well; the overview keeps them
+# apart and the status filter finds them; a new simulated run logs fresh hits instead of hiding
+# behind the superseded ones. Last: migration 1005 on existing entries (rule changed since / gone).
+s37() {
+	api() { docker exec "$C" curl -sf -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/$1"; }
+	putrule() {
+		docker exec "$C" curl -s -o /dev/null -w '%{http_code}' -X PUT -u "admin:$PW" -H 'OCS-APIRequest: true' \
+			-H 'Content-Type: application/json' -d "$2" "http://localhost/index.php/apps/folder_retention/api/rules/$1"
+	}
+	counts() {
+		echo "$(sql "SELECT COUNT(*) FROM oc_folder_retention_log WHERE path LIKE '%s37-%' AND status = 'would_delete' AND superseded_at IS NULL")/$(sql "SELECT COUNT(*) FROM oc_folder_retention_log WHERE path LIKE '%s37-%' AND status = 'would_delete' AND superseded_at IS NOT NULL")"
+	}
+	local t0 f
+	t0=$(( $(now) - 60 ))
+	set_sim true
+	for f in a b c; do
+		put alice "s37-$f.txt"
+		age "s37-$f.txt" 10
+	done
+	retention_run s37-1
+	local c1 c2 c3 c4 c5 http1 http2 groups days filt current purge
+	c1=$(counts)
+	# 1) personal folders to "never": the three hits were evaluated with the old period
+	http1=$(putrule personal '{"periodUnit":"never"}')
+	c2=$(counts)
+	groups=$(api "log/folders?search=s37-&from=$t0&to=$(( $(now) + 3600 ))" | grep -o '"superseded":[a-z]*,"total":[0-9]*' | paste -sd' ' || true)
+	days=$(api "log/days?search=s37-" | grep -o '"superseded":[0-9]*' | head -1 || true)
+	filt=$(api "log?search=s37-&status=superseded" | grep -o '"total":[0-9]*' || true)
+	current=$(api "log?search=s37-&status=would_delete" | grep -o '"total":[0-9]*' || true)
+	# 2) back to one day: the next simulated run logs fresh hits
+	http2=$(putrule personal '{"periodUnit":"day","periodValue":1}')
+	retention_run s37-2
+	c3=$(counts)
+	# 3) the user moves c to the trash bin; after a cycle its hit no longer applies
+	docker exec "$C" curl -sf -o /dev/null -u "alice:$PW" -X DELETE "http://localhost/remote.php/dav/files/alice/s37-c.txt" || true
+	purge=$(docker exec -u www-data "$C" php /tmp/fret-proc.php purge 2>&1 | tail -n1 || true)
+	c4=$(counts)
+	# 4) real run deletes a and b: their hits are done
+	set_sim false
+	retention_run s37-3
+	c5=$(counts)
+	# 5) migration on an existing installation: column and record gone, one entry of a removed rule
+	local mig c6
+	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_id, rule_label, reference_date, reference_source, deleted_at, mode, status) VALUES (990501, 1, 's37-gone-rule.txt', 999999, 's37', 1, 'upload', ?, 'simulation', 'would_delete')" "$t0"
+	sql "DELETE FROM oc_migrations WHERE app = 'folder_retention' AND version = '1005Date20261005120000'"
+	sql "ALTER TABLE oc_folder_retention_log DROP COLUMN superseded_at"
+	mig=$(docker exec -u www-data "$C" php /tmp/fret-proc.php migrate 1005Date20261005120000 2>&1 | tail -n1 || true)
+	# run 1 (before the second rule change) and the removed rule: superseded; run 2: current
+	c6=$(counts)
+	sql "DELETE FROM oc_folder_retention_log WHERE rule_label = 's37'"
+	local ok=1
+	[[ "$c1" == 3/0 && "$http1" == 200 && "$c2" == 0/3 ]] || ok=0
+	[[ "$groups" == *'"superseded":true,"total":3'* && "$groups" != *'"superseded":false'* ]] || ok=0
+	[[ "$days" == '"superseded":3' && "$filt" == '"total":3' && "$current" == '"total":0' ]] || ok=0
+	[[ "$http2" == 200 && "$c3" == 3/3 && "$c4" == 2/4 && "$c5" == 0/6 ]] || ok=0
+	[[ "$mig" == done && "$c6" == 3/4 ]] || ok=0
+	local note="sim run: $c1, rule to never (HTTP $http1): $c2, groups: $groups, day: $days, filter superseded $filt / current $current; rule back (HTTP $http2) + run: $c3; c to trash + purge ($purge): $c4; real run: $c5; migration $mig: $c6 (current/superseded)"
+	if [[ $ok == 1 ]]; then
+		result PASS S37 "$note"
+	else
+		result FAIL S37 "$note"
 	fi
 }
 
@@ -1621,6 +1686,7 @@ scenario S33 s33
 scenario S34 s34
 scenario S35 s35
 scenario S36 s36
+scenario S37 s37
 
 pass=$(grep -c '^PASS ' "$RES" || true)
 fail=$(grep -c '^FAIL ' "$RES" || true)

@@ -29,17 +29,23 @@ class LogRetention {
 
 	/**
 	 * Once per completed cycle (RetentionJob). Errors only end up in the Nextcloud log – the
-	 * next cycle tries again.
+	 * next cycle tries again. Also marks simulated hits of files that no longer exist as
+	 * superseded: no run evaluates them again.
 	 *
-	 * @return array{log: int, seen: int} number of removed entries
+	 * @return array{log: int, seen: int, superseded: int} number of removed / marked entries
 	 */
 	public function purge(): array {
-		$out = ['log' => 0, 'seen' => 0];
+		$out = ['log' => 0, 'seen' => 0, 'superseded' => 0];
 		$cutoff = $this->time->getTime() - $this->settings->logRetentionDays() * 86400;
 		try {
 			$out['log'] = $this->logMapper->purgeOlderThan($cutoff);
 		} catch (Throwable $e) {
 			$this->logger->error('folder_retention: cleaning up the log failed', ['exception' => $e]);
+		}
+		try {
+			$out['superseded'] = $this->logMapper->supersedeMissing($this->time->getTime());
+		} catch (Throwable $e) {
+			$this->logger->error('folder_retention: marking log entries of missing files failed', ['exception' => $e]);
 		}
 		try {
 			$out['seen'] = $this->firstSeen->purgeOrphans();

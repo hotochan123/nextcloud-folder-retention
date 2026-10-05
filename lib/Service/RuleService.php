@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\Service;
 
 use InvalidArgumentException;
+use OCA\FolderRetention\Db\LogMapper;
 use OCA\FolderRetention\Db\Rule;
 use OCA\FolderRetention\Db\RuleMapper;
 use OCA\FolderRetention\Model\Basis;
@@ -23,6 +24,7 @@ class RuleService {
 		private ITimeFactory $time,
 		private Settings $settings,
 		private IL10N $l,
+		private LogMapper $logMapper,
 	) {
 	}
 
@@ -96,7 +98,8 @@ class RuleService {
 	}
 
 	/**
-	 * Create or update a rule.
+	 * Create or update a rule. If what decides deletion changes (period, scope, basis), the
+	 * simulated hits evaluated with the old setting are marked as superseded.
 	 *
 	 * @param int|null $folderId null = default rule. The caller checks that the folder exists.
 	 * @param array{periodUnit?: mixed, periodValue?: mixed, scope?: mixed, basis?: mixed, notify?: mixed} $input
@@ -112,6 +115,7 @@ class RuleService {
 				: $this->mapper->findByFolderId($folderId);
 			$now = $this->time->getTime();
 			$isNew = $rule === null;
+			$before = $isNew ? null : [$rule->getPeriodUnit(), $rule->getPeriodValue() === null ? null : (int)$rule->getPeriodValue(), $rule->getScope(), $rule->getBasis()];
 			if ($isNew) {
 				$rule = new Rule();
 				$rule->setFolderId($folderId);
@@ -125,6 +129,9 @@ class RuleService {
 			$rule->setNotify($notify);
 			$rule->setUpdatedAt($now);
 			$rule = $isNew ? $this->mapper->insert($rule) : $this->mapper->update($rule);
+			if ($before !== null && $before !== [$period->unit->value, $period->value, $scope?->value, $basis->value]) {
+				$this->logMapper->supersedeByRule($rule->getId(), $now);
+			}
 			$this->db->commit();
 			return $rule;
 		} catch (\Throwable $e) {
@@ -133,13 +140,14 @@ class RuleService {
 		}
 	}
 
-	/** Removes a folder's rule; the folder inherits again afterwards. */
+	/** Removes a folder's rule; the folder inherits again afterwards. Its simulated hits are superseded. */
 	public function delete(int $folderId): bool {
 		$rule = $this->mapper->findByFolderId($folderId);
 		if ($rule === null) {
 			return false;
 		}
 		$this->mapper->delete($rule);
+		$this->logMapper->supersedeByRule($rule->getId(), $this->time->getTime());
 		return true;
 	}
 

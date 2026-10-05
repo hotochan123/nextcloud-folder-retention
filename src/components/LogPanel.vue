@@ -24,6 +24,9 @@
 				<option value="would_delete">
 					{{ t('folder_retention', 'Would delete') }}
 				</option>
+				<option value="superseded">
+					{{ t('folder_retention', 'Superseded') }}
+				</option>
 				<option value="skipped">
 					{{ t('folder_retention', 'Skipped') }}
 				</option>
@@ -102,24 +105,30 @@
 					<NcNoteCard v-else-if="dayState[day.date]?.error" type="error">
 						{{ dayState[day.date].error }}
 					</NcNoteCard>
-					<details v-for="f in dayState[day.date]?.folders ?? []"
-						:key="`${f.root}\n${f.folder}`"
-						class="fr-folder"
-						:open="folderState[key(day, f)]?.open"
-						@toggle="onFolderToggle(day, f, $event)">
-						<summary class="fr-group">
-							<NcIconSvgWrapper class="fr-chevron" :path="mdiChevronRight" :size="20" />
-							<NcIconSvgWrapper class="fr-folder__icon" :path="mdiFolderOutline" :size="20" />
-							<span class="fr-group__name fr-path">{{ f.folder || t('folder_retention', 'No folder') }}</span>
-							<span class="fr-chips">
-								<StatusChip v-for="c in countChips(f.counts)" :key="c.key" :tone="c.tone" :label="c.label" />
-							</span>
-						</summary>
-						<LogFileTable v-if="folderState[key(day, f)]"
-							:state="folderState[key(day, f)]"
-							:counts="f.counts"
-							@more="moreFiles(day, f)" />
-					</details>
+					<template v-for="(f, i) in dayState[day.date]?.folders ?? []" :key="key(day, f)">
+						<!-- superseded hits come last (LogSummary::folders), under a heading of their own -->
+						<p v-if="f.superseded && !dayState[day.date].folders[i - 1]?.superseded" class="fr-superseded">
+							<strong>{{ t('folder_retention', 'No longer applies') }}</strong>
+							{{ t('folder_retention', 'Simulated hits superseded by a later rule change, run or deletion – they do not lead to a deletion.') }}
+						</p>
+						<details class="fr-folder"
+							:class="{ 'fr-folder--superseded': f.superseded }"
+							:open="folderState[key(day, f)]?.open"
+							@toggle="onFolderToggle(day, f, $event)">
+							<summary class="fr-group">
+								<NcIconSvgWrapper class="fr-chevron" :path="mdiChevronRight" :size="20" />
+								<NcIconSvgWrapper class="fr-folder__icon" :path="mdiFolderOutline" :size="20" />
+								<span class="fr-group__name fr-path">{{ f.folder || t('folder_retention', 'No folder') }}</span>
+								<span class="fr-chips">
+									<StatusChip v-for="c in countChips(f.counts)" :key="c.key" :tone="c.tone" :label="c.label" />
+								</span>
+							</summary>
+							<LogFileTable v-if="folderState[key(day, f)]"
+								:state="folderState[key(day, f)]"
+								:counts="f.counts"
+								@more="moreFiles(day, f)" />
+						</details>
+					</template>
 				</div>
 			</details>
 		</div>
@@ -186,8 +195,8 @@ function dayParams(day) {
 	return { ...p, from: Math.max(p.from ?? 0, day.from), to: Math.min(p.to ?? day.to, day.to) }
 }
 
-/** A folder group is area key + folder: two areas with the same name stay apart */
-const key = (day, f) => `${day.date}\n${f.root}\n${f.folder}`
+/** A folder group is area key + folder: two areas with the same name stay apart; superseded hits are a group of their own */
+const key = (day, f) => `${day.date}\n${f.superseded ? 1 : 0}\n${f.root}\n${f.folder}`
 
 async function reload() {
 	const gen = ++generation
@@ -293,7 +302,7 @@ async function loadFiles(day, f, st) {
 	st.loading = true
 	st.error = null
 	try {
-		const data = await fetchLog({ ...dayParams(day), folder: f.folder, root: f.root, limit: FILE_PAGE, offset: st.entries.length })
+		const data = await fetchLog({ ...dayParams(day), folder: f.folder, root: f.root, superseded: f.superseded ? 1 : 0, limit: FILE_PAGE, offset: st.entries.length })
 		if (gen !== generation) return
 		st.entries = [...st.entries, ...data.entries]
 		st.total = data.total
@@ -441,6 +450,23 @@ details[open] > summary .fr-chevron {
 }
 
 .fr-folder__icon {
+	color: var(--color-text-maxcontrast);
+}
+
+// heading above the superseded groups of a day
+.fr-superseded {
+	margin: 12px 0 4px;
+	padding-top: 8px;
+	border-top: 1px dashed var(--color-border-maxcontrast);
+	color: var(--color-text-maxcontrast);
+
+	strong {
+		margin-inline-end: 4px;
+		color: var(--color-main-text);
+	}
+}
+
+.fr-folder--superseded > summary .fr-group__name {
 	color: var(--color-text-maxcontrast);
 }
 

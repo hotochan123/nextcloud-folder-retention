@@ -117,6 +117,8 @@ class RetentionRunnerTest extends TestCase {
 	private ?array $halt = null;
 	/** @var list<int> log entry IDs (index + 1 in $logged) moved via LogMapper::touch */
 	private array $touched = [];
+	/** @var list<list<int>> file IDs per LogMapper::supersede() call */
+	private array $supersededCalls = [];
 
 	private function runner(bool $cli = true): RetentionRunner {
 		$rootA = new RetentionRoot(RetentionRoot::KIND_TEAM, 1, 100, '__groupfolders/1', 'A', ['alice']);
@@ -282,6 +284,10 @@ class RetentionRunnerTest extends TestCase {
 			$this->logged[$id - 1]->setDeletedAt($at);
 			$this->touched[] = $id;
 		});
+		$this->logMapper->method('supersede')->willReturnCallback(function (array $ids) {
+			$this->supersededCalls[] = array_values($ids);
+			return 0;
+		});
 		$this->logMapper->method('lastDeleted')->willReturnCallback(
 			fn (array $ids) => array_intersect_key($this->lastDeleted, array_flip($ids)));
 
@@ -423,11 +429,37 @@ class RetentionRunnerTest extends TestCase {
 		$this->assertCount(14, $this->loggedIds);
 	}
 
+	public function testRealRunSupersedesHitsOfFilesNotDueOrDeleted(): void {
+		$this->simulation = false;
+		$this->period = Period::never();
+		$this->runner()->runFull(false, null);
+		$this->assertSame([11, 12, 13, 21, 22, 23], array_merge(...$this->supersededCalls), 'not due');
+		$this->assertCount(4, $this->supersededCalls, 'one query per batch (batch size 2), not per file');
+
+		$this->supersededCalls = [];
+		$this->period = null;
+		$this->deleteResult = [12 => LogEntry::STATUS_SKIPPED_LOCKED, 13 => LogEntry::STATUS_ERROR];
+		$this->runner()->runFull(false, null);
+		$this->assertSame([11, 21, 22, 23], array_merge(...$this->supersededCalls), 'deleted: superseded; locked or failed: still due');
+	}
+
+	public function testSimulationSupersedesThePreviousEvaluationOnlyWhenLoggingANewOne(): void {
+		$this->simulation = true;
+		$runner = $this->runner();
+		$runner->runFull(false, null);
+		$this->assertSame([[11], [12], [13], [21], [22], [23]], $this->supersededCalls);
+
+		$this->supersededCalls = [];
+		$runner->runFull(false, null);
+		$this->assertSame([], $this->supersededCalls, 'same evaluation: entry stays current');
+	}
+
 	public function testDryRunWritesNothing(): void {
 		$this->simulation = false;
 		$runner = $this->runner();
 		$this->deleter->expects($this->never())->method('delete');
 		$this->logMapper->expects($this->never())->method('insert');
+		$this->logMapper->expects($this->never())->method('supersede');
 
 		$stats = $runner->runFull(true, null);
 		$this->assertSame(6, $stats->due);

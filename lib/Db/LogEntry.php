@@ -35,6 +35,8 @@ use OCP\DB\Types;
  * @method void setMessage(?string $message)
  * @method ?string getRootKey()
  * @method void setRootKey(?string $key)
+ * @method ?int getSupersededAt()
+ * @method void setSupersededAt(?int $ts)
  */
 class LogEntry extends Entity implements JsonSerializable {
 	public const MODE_REAL = 'real';
@@ -67,6 +69,11 @@ class LogEntry extends Entity implements JsonSerializable {
 	protected $message;
 	/** RetentionRoot::blockKey() of the area; null = older entry without a key */
 	protected $rootKey;
+	/**
+	 * Only for "would delete": when the entry stopped being true (rule changed or removed, file no
+	 * longer due, gone or deleted for real since); null = still current
+	 */
+	protected $supersededAt;
 
 	public function __construct() {
 		$this->addType('fileId', Types::BIGINT);
@@ -82,6 +89,7 @@ class LogEntry extends Entity implements JsonSerializable {
 		$this->addType('status', Types::STRING);
 		$this->addType('message', Types::STRING);
 		$this->addType('rootKey', Types::STRING);
+		$this->addType('supersededAt', Types::BIGINT);
 	}
 
 	public function jsonSerialize(): array {
@@ -99,6 +107,7 @@ class LogEntry extends Entity implements JsonSerializable {
 			'status' => $this->status,
 			'message' => $this->message,
 			'rootKey' => $this->rootKey,
+			'supersededAt' => $this->supersededAt === null ? null : (int)$this->supersededAt,
 		];
 	}
 }

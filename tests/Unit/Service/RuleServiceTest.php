@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FolderRetention\Tests\Unit\Service;
 
+use OCA\FolderRetention\Db\LogMapper;
 use OCA\FolderRetention\Db\Rule;
 use OCA\FolderRetention\Db\RuleMapper;
 use OCA\FolderRetention\Model\PeriodUnit;
@@ -18,6 +19,7 @@ use PHPUnit\Framework\TestCase;
  */
 class RuleServiceTest extends TestCase {
 	private RuleMapper&MockObject $mapper;
+	private LogMapper&MockObject $logMapper;
 	private bool $includePersonal = false;
 	/** @var array{general: ?Rule, personal: ?Rule} */
 	private array $existing = ['general' => null, 'personal' => null];
@@ -40,7 +42,8 @@ class RuleServiceTest extends TestCase {
 		$time->method('getTime')->willReturn(1000);
 		// IDBConnection cannot be mocked without Doctrine; the default rules do not need it
 		$service = (new \ReflectionClass(RuleService::class))->newInstanceWithoutConstructor();
-		foreach (['mapper' => $this->mapper, 'time' => $time, 'settings' => $settings] as $name => $value) {
+		$this->logMapper = $this->createMock(LogMapper::class);
+		foreach (['mapper' => $this->mapper, 'time' => $time, 'settings' => $settings, 'logMapper' => $this->logMapper] as $name => $value) {
 			(new \ReflectionProperty(RuleService::class, $name))->setValue($service, $value);
 		}
 		return $service;
@@ -103,5 +106,25 @@ class RuleServiceTest extends TestCase {
 
 		$this->assertSame('week', $this->inserted[0]->getPeriodUnit());
 		$this->assertSame(2, $this->inserted[0]->getPeriodValue());
+	}
+
+	public function testDeletingARuleSupersedesItsSimulatedHits(): void {
+		$service = $this->service();
+		$rule = $this->rule(null, 1, PeriodUnit::Month);
+		$rule->setFolderId(42);
+		$rule->setId(7);
+		$this->mapper->method('findByFolderId')->with(42)->willReturn($rule);
+		$this->mapper->expects($this->once())->method('delete')->with($rule);
+		$this->logMapper->expects($this->once())->method('supersedeByRule')->with(7, 1000);
+
+		$this->assertTrue($service->delete(42));
+	}
+
+	public function testDeletingAMissingRuleSupersedesNothing(): void {
+		$service = $this->service();
+		$this->mapper->method('findByFolderId')->willReturn(null);
+		$this->logMapper->expects($this->never())->method('supersedeByRule');
+
+		$this->assertFalse($service->delete(42));
 	}
 }

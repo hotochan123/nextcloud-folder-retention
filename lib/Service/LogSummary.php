@@ -15,11 +15,11 @@ use OCA\FolderRetention\Db\LogMapper;
  * SQL cannot derive the parent folder of a path portably.
  *
  * @psalm-import-type LogFilter from LogMapper
- * @psalm-type Counts = array{deleted: int, would_delete: int, skipped: int, error: int}
+ * @psalm-type Counts = array{deleted: int, would_delete: int, superseded: int, skipped: int, error: int}
  */
 class LogSummary {
 	/** Status groups like the log's status filter; categoryOf() in src/format.js mirrors this */
-	public const CATEGORIES = ['deleted', 'would_delete', 'skipped', 'error'];
+	public const CATEGORIES = ['deleted', 'would_delete', 'superseded', 'skipped', 'error'];
 
 	public function __construct(
 		private LogMapper $mapper,
@@ -41,7 +41,7 @@ class LogSummary {
 			$date = (new DateTimeImmutable('@' . $row['deleted_at']))->setTimezone($tz)->format('Y-m-d');
 			$days[$date] ??= ['total' => 0, 'counts' => self::emptyCounts()];
 			$days[$date]['total']++;
-			$days[$date]['counts'][self::category($row['status'])]++;
+			$days[$date]['counts'][self::category($row['status'], $row['superseded'])]++;
 		}
 		krsort($days, SORT_STRING);
 		$out = [];
@@ -62,20 +62,24 @@ class LogSummary {
 	 * @param LogFilter $filter usually with from/to of one day
 	 * One group per area key and parent folder: two areas with the same name (or a renamed one)
 	 * stay apart. root = RetentionRoot::blockKey(), '' for older entries without a key.
+	 * Superseded "would delete" entries form groups of their own (superseded = true) after all
+	 * others – they no longer apply and should not mix with what a run did or would do.
 	 *
-	 * @return list<array{folder: string, root: string, total: int, counts: Counts}> sorted by folder path
+	 * @return list<array{folder: string, root: string, superseded: bool, total: int, counts: Counts}> sorted by folder path
 	 */
 	public function folders(array $filter): array {
 		$folders = [];
 		foreach ($this->mapper->iterateSummary($filter) as $row) {
 			$folder = self::folderOf($row['path']);
 			$root = $row['root_key'] ?? '';
-			$key = $root . "\n" . $folder;
-			$folders[$key] ??= ['folder' => $folder, 'root' => $root, 'total' => 0, 'counts' => self::emptyCounts()];
+			$key = ($row['superseded'] ? '1' : '0') . "\n" . $root . "\n" . $folder;
+			$folders[$key] ??= ['folder' => $folder, 'root' => $root, 'superseded' => $row['superseded'], 'total' => 0, 'counts' => self::emptyCounts()];
 			$folders[$key]['total']++;
-			$folders[$key]['counts'][self::category($row['status'])]++;
+			$folders[$key]['counts'][self::category($row['status'], $row['superseded'])]++;
 		}
-		usort($folders, fn (array $a, array $b) => strnatcasecmp($a['folder'], $b['folder']) ?: strcmp($a['root'], $b['root']));
+		usort($folders, fn (array $a, array $b) => $a['superseded'] <=> $b['superseded']
+			?: strnatcasecmp($a['folder'], $b['folder'])
+			?: strcmp($a['root'], $b['root']));
 		return array_values($folders);
 	}
 
@@ -85,11 +89,11 @@ class LogSummary {
 		return $pos === false ? '' : substr($path, 0, $pos);
 	}
 
-	/** Groups like the log's status filter */
-	public static function category(string $status): string {
+	/** Groups like the log's status filter; $superseded only matters for "would delete" */
+	public static function category(string $status, bool $superseded = false): string {
 		return match (true) {
 			$status === LogEntry::STATUS_DELETED => 'deleted',
-			$status === LogEntry::STATUS_WOULD_DELETE => 'would_delete',
+			$status === LogEntry::STATUS_WOULD_DELETE => $superseded ? 'superseded' : 'would_delete',
 			str_starts_with($status, 'skipped') => 'skipped',
 			default => 'error',
 		};

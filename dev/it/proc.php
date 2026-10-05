@@ -152,6 +152,9 @@ switch ($argv[1] ?? '') {
 		$ms->executeStep($argv[2]);
 		echo "done\n";
 		break;
+	case 'purge':
+		echo json_encode(\OCP\Server::get(\OCA\FolderRetention\Service\LogRetention::class)->purge()) . "\n";
+		break;
 	default:
 		fwrite(STDERR, "unbekannter Modus\n");
 		exit(2);
