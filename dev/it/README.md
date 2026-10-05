@@ -41,7 +41,7 @@ without `js/`, the npm build adds ~1 min.
 | S1  | alice, bob, carol one due file each, ONE run → all three in their own trash bin, log `deleted` | B1 |
 | S2  | run → `occ trashbin:restore` → next run does not delete again | B2 |
 | S28 | dave: run moves the file, deletion time in the log set to 10 days ago (rule 1 day), `occ trashbin:restore` → next run: file stays, `first_seen` = time of that run; with `first_seen` 2 days ago due again → trash bin | Review 0.8.1 (restore later than one retention period) |
-| S29 | erin: `proc.php trashthrow` – two runs in ONE process (like `occ background-job:worker`), in the first the locking backend throws in `Trashbin::move2trash` → both `error`, the second with „Prozessneustart“, file stays (without a block: `deleted_final`, LegacyTrashBackend::deletedFiles) | Review 0.8.1 (exception in the trash bin, long-lived process) |
+| S29 | erin: `proc.php trashthrow` – two runs in ONE process (like `occ background-job:worker`), in the first the locking backend throws in `Trashbin::move2trash` → both `error`, the second with "Prozessneustart" (German log text), file stays (without a block: `deleted_final`, LegacyTrashBackend::deletedFiles) | Review 0.8.1 (exception in the trash bin, long-lived process) |
 | S3  | uploaded today via WebDAV with `X-OC-CTime` 2015 → not due | B3 |
 | S4  | via the file system + `occ files:scan` (no upload_time), mtime 2015 → not due in the first run | B3/F4 |
 | S5  | fresh installation: both default rules "never", simulation mode off + run → 0 deletions | B4 |
@@ -51,7 +51,7 @@ without `js/`, the npm build adds ~1 min.
 | S8  | team folder (groupfolders) → file in the groupfolders trash bin (`oc_group_folders_trash` + disk); earlier in the same run a personal file of bob (account switch) | B1 |
 | S11 | team folder file additionally shared directly with a member → in the groupfolders trash bin, not just the share gone | B7 |
 | S9  | alice shares with bob, file due → ends up in alice's trash bin | B7 |
-| S12 | quota almost full (ivan, 20 MB): a small due file fits in the trash bin, a large one would be cleared by expire right away → stays (log „Quota“); expire commands run afterwards → nothing permanently gone | Review 0.8 |
+| S12 | quota almost full (ivan, 20 MB): a small due file fits in the trash bin, a large one would be cleared by expire right away → stays (log "Quota"); expire commands run afterwards → nothing permanently gone | Review 0.8 |
 | S13 | `occ trashbin:size 1GB` (value of the wrong type), three due files in two accounts → no file missing on disk and in the trash bin | Review 0.8 |
 | S14 | original 700 days old, copied via WebDAV COPY (the copy inherits the upload time) → original in the trash bin, copy stays | Review 0.8 |
 | S18 | `seen_max_fileid` boundary set after installation; "update now" simulated (boundary = MAX(fileid), no cycle completed), then a copy of a 700-day-old file → copy stays for two runs, original in the trash bin | Review 0.8 (transition window) |
@@ -60,20 +60,26 @@ without `js/`, the npm build adds ~1 min.
 | S20 | process P (`proc.php wait`, like cron.php) has read the block list, Q sets a block → P sees it, P's own block leaves Q's in place; a block in the old app config value `blocked_roots` moves into the table on the next access | Review 0.8 (block list in the process cache) |
 | S21 | walter: two 245-character names that differ only in the middle (files_trashbin truncates them identically), one run → both in the trash bin with their own content, log `deleted` × 2 | Review 0.8 (long names in the trash bin) |
 | S22 | rupert: move s22A/Protokoll.pdf, end of run (`releaseContext`, the run's memory empty), immediately s22B/Protokoll.pdf – at the start of a second, i.e. without protection within the same second (`proc.php samesecond`) → both in the trash bin with their own content | Review 0.8 (trash bin name across run boundaries) |
-| S15 | quota tight (oscar, 20 MB), due 1 MB file with 3 × 1 MB versions: the versions move into the trash bin too → expire would clear it → file stays (log „Versionen“); never permanently gone | Review 0.8 (versions) |
-| S23 | separate instance `$C-os` with an object store as primary storage (`objectstore/`: FretDirObjectStore, objects as files, without S3). olga: quota 10 MB, 3 MB staying, 1.4 MB already in the trash bin, 2 MB due → after a run + `trashbin:expire` not permanently gone (stays with log „Quota“) | Review 0.8 (usage with an object store) |
+| S15 | quota tight (oscar, 20 MB), due 1 MB file with 3 × 1 MB versions: the versions move into the trash bin too → expire would clear it → file stays (log "Versionen", German log text); never permanently gone | Review 0.8 (versions) |
+| S23 | separate instance `$C-os` with an object store as primary storage (`objectstore/`: FretDirObjectStore, objects as files, without S3). olga: quota 10 MB, 3 MB staying, 1.4 MB already in the trash bin, 2 MB due → after a run + `trashbin:expire` not permanently gone (stays with log "Quota") | Review 0.8 (usage with an object store) |
 | S24 | separate instance `$C-up`: app from `OLD_REV` (fb4395c, 0.8.0), cycle in simulation mode → `seen_since`, then WebDAV COPY of a 400-day-old file (protected there) → working tree + `occ upgrade` → `seen_since` deleted, `seen_max_fileid` < ID of the copy, real run: copy stays, original in the trash bin | Review 0.8 (update fb4395c → 0.8.1) |
 | S10 | `background-job:execute --force-execute` in the background + `occ folder_retention:run` in parallel → no duplicate log, nothing lost, block message in the occ text | B9 |
 | S17 | `background:ajax`, only the RetentionJob due, anonymous call of `cron.php` with `X-NC-Skip-Trashbin: true` → job runs, file stays, no log, no new block; `/api/settings` reports `cronMode: ajax`; then back to `background:cron` | Review 0.8 (web cron) |
-| S25 | team folder with carol and bob, due file; earlier in the same run carol's own file (context carol) → team file deleted via bob (first member when sorted): `oc_group_folders_trash.deleted_by = bob`, log `deleted (… über Konto bob … gelöscht hat folder_retention)`; carol's file with „über Konto carol“ | Review 0.8 (deleting account in trash bin/activity) |
+| S25 | team folder with carol and bob, due file; earlier in the same run carol's own file (context carol) → team file deleted via bob (first member when sorted): `oc_group_folders_trash.deleted_by = bob`, log `deleted (… über Konto bob … gelöscht hat folder_retention)` (German log text); carol's file with "über Konto carol" | Review 0.8 (deleting account in trash bin/activity) |
 | S26 | separate instance `$C-rm`: rules 1 day, simulation mode off → `occ app:remove` (without `--keep-data`) → reinstalled: `simulation_mode` = 1 (uninstall step), rules unchanged, due file stays (log `simulation:would_delete`) | Review 0.8 (reinstall after app:remove) |
 | S27 | separate instance `$C-rs`: `occ app:remove`, then exactly the SQL block from INSTALL.md §9 ("clean up completely") → reinstalled: 5 tables, simulation mode on, both default rules "never", `--dry-run` without SQL errors | Review 0.8 (tables deleted by hand) |
 | S31 | separate instance `$C-enc`: groupfolders + `occ encryption:enable-master-key` + `groupfolders enable_encryption=true`, team folder file and personal file due, one run → both `deleted`, team folder file in the groupfolders trash bin (there under a NEW fileid, `oc_group_folders_trash.file_id` = the old one), no block | Review 0.8.1 (encryption in the team folder) |
 | S32 | log overview via the API: four entries (folder with `%`, `_`, `[` in its name, a subfolder, a neighbouring folder, a path without a folder) → `/api/log?folder=` returns only the direct files each, `/api/log/folders` and `/api/log/days` count correctly | Log by day and folder (`notLike()` without `ESCAPE` on SQLite) |
+| S33 | log retention: old entries removed after a completed cycle, an old real `deleted` of a file that still exists and a recent error stay; "first seen" of a vanished file removed | Audit 05.10. (log retention) |
+| S34 | deleting an account removes its log entries (home storage) and its work-space marking; entries of other areas stay | Audit 05.10. (account cleanup) |
+| S35 | the same error twice moves the entry instead of adding one (`proc.php repeat`); deletion limit 2: run 1 deletes two and halts, run 2 deletes nothing, after "resume" the rest | Audit 05.10. (repeats, deletion limit) |
+| S36 | two areas with the same name stay apart in `/api/log/folders` (`root`) and the folder filter; real runs write `root_key`; CSV export streamed with BOM and attachment headers; migration 1004 as a single step on an existing installation | Audit 05.10. (stable area key, streamed CSV) |
+| S37 | superseded simulated hits: rule change marks them at once, overview groups and status filter keep them apart, a new simulated run logs fresh hits, a file moved to the trash bin is marked by `purge`, a real run marks deleted ones; migration 1005 marks existing entries whose rule changed or is gone | "Would delete" that no longer applies |
 
 Expectations are deliberately tolerant (file present / in the trash bin / somewhere on disk instead
 of exact status strings) so the 0.8.0 implementation is checked fairly. S10 detects the block
-message by `gesperrt|läuft bereits|Sperre|locked|already running` outside the result table.
+message by `gesperrt|läuft bereits|Sperre|locked|already running` (German or English log text)
+outside the result table.
 
 ## How files "age"
 

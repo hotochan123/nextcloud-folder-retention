@@ -21,6 +21,9 @@
 //       runs one migration step of the app via MigrationService::executeStep, the way prod gets a
 //       schema change without a version bump (occ migrations:execute exists only with debug=true).
 //       Output: "done" or "already"
+//   php proc.php purge
+//       LogRetention::purge() as after a completed cycle (log retention, superseded hits of files
+//       that are gone or only left in a trash bin, orphaned "first seen" rows). Output: JSON counts
 declare(strict_types=1);
 
 require_once '/var/www/html/lib/base.php';
@@ -54,7 +57,7 @@ switch ($argv[1] ?? '') {
 			$row = $fileCache->getFileRow($id);
 			$located = $row === null ? null : $rootProvider->locate($row->parentId);
 			if ($located === null) {
-				fwrite(STDERR, "Datei $id nicht gefunden bzw. in keinem Bereich\n");
+				fwrite(STDERR, "file $id not found or not in any area\n");
 				exit(1);
 			}
 			$rows[] = [$located[0], $row];
@@ -86,7 +89,7 @@ switch ($argv[1] ?? '') {
 				if ($this->armed) {
 					foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
 						if (($frame['function'] ?? '') === 'move2trash') {
-							throw new \RuntimeException('Harness: Locking-Backend nicht erreichbar');
+							throw new \RuntimeException('Harness: locking backend unreachable');
 						}
 					}
 				}
@@ -113,7 +116,7 @@ switch ($argv[1] ?? '') {
 			$row = $fileCache->getFileRow((int)$argv[2]);
 			$located = $row === null ? null : $rootProvider->locate($row->parentId);
 			if ($located === null) {
-				$out[] = ['fehlt', 'Datei nicht im Bereich bzw. weg'];
+				$out[] = ['missing', 'file not in the area or gone'];
 				continue;
 			}
 			$out[] = $deleter->delete($located[0], $row);
@@ -156,6 +159,6 @@ switch ($argv[1] ?? '') {
 		echo json_encode(\OCP\Server::get(\OCA\FolderRetention\Service\LogRetention::class)->purge()) . "\n";
 		break;
 	default:
-		fwrite(STDERR, "unbekannter Modus\n");
+		fwrite(STDERR, "unknown mode\n");
 		exit(2);
 }

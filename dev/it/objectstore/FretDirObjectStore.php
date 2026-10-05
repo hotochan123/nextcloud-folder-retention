@@ -33,7 +33,7 @@ class FretDirObjectStore implements IObjectStore {
 	public function readObject($urn) {
 		$h = @fopen($this->file($urn), 'rb');
 		if ($h === false) {
-			throw new \Exception('Objekt fehlt: ' . $urn);
+			throw new \Exception('object missing: ' . $urn);
 		}
 		return $h;
 	}
@@ -41,7 +41,7 @@ class FretDirObjectStore implements IObjectStore {
 	public function writeObject($urn, $stream, ?string $mimetype = null) {
 		$h = fopen($this->file($urn), 'wb');
 		if ($h === false) {
-			throw new \Exception('Objekt nicht schreibbar: ' . $urn);
+			throw new \Exception('object not writable: ' . $urn);
 		}
 		stream_copy_to_stream($stream, $h);
 		fclose($h);
@@ -57,7 +57,7 @@ class FretDirObjectStore implements IObjectStore {
 
 	public function copyObject($from, $to) {
 		if (!copy($this->file($from), $this->file($to))) {
-			throw new \Exception('Kopieren fehlgeschlagen: ' . $from);
+			throw new \Exception('copy failed: ' . $from);
 		}
 	}
 

@@ -38,13 +38,13 @@ STARTED=$(date +%s)
 cleanup() {
 	local rc=$?
 	if [[ "$KEEP" == 1 ]]; then
-		echo "KEEP=1: Container $C (ggf. auch $C-os, $C-up, $C-rm, $C-rs, $C-enc) und $WORK bleiben stehen (docker rm -fv $C $C-os $C-up $C-rm $C-rs $C-enc)" >&2
+		echo "KEEP=1: container $C (possibly also $C-os, $C-up, $C-rm, $C-rs, $C-enc) and $WORK are kept (docker rm -fv $C $C-os $C-up $C-rm $C-rs $C-enc)" >&2
 	else
 		docker rm -fv "$C" "$C-os" "$C-up" "$C-rm" "$C-rs" "$C-enc" >/dev/null 2>&1 || true
 		if [[ $rc -eq 0 ]]; then
 			rm -rf "$WORK"
 		else
-			echo "Protokolle der Läufe: $WORK" >&2
+			echo "Run outputs: $WORK" >&2
 		fi
 	fi
 }
@@ -67,7 +67,7 @@ put() {
 	local user=$1 path=$2 ctime=${3:-}
 	local hdr=()
 	[[ -n "$ctime" ]] && hdr=(-H "X-OC-CTime: $ctime")
-	echo "Inhalt $path" | docker exec -i "$C" curl -sf -o /dev/null -u "$user:$PW" -T - "${hdr[@]}" \
+	echo "Content $path" | docker exec -i "$C" curl -sf -o /dev/null -u "$user:$PW" -T - "${hdr[@]}" \
 		"http://localhost/remote.php/dav/files/$user/$path"
 }
 
@@ -92,7 +92,7 @@ fid() {
 age() {
 	local name=$1 days=$2 cdays=${3:-$2} id
 	id=$(fid "$name")
-	[[ -n "$id" ]] || { info "age: $name nicht im Filecache"; return 1; }
+	[[ -n "$id" ]] || { info "age: $name not in the filecache"; return 1; }
 	age_id "$id" "$days" "$cdays"
 }
 
@@ -173,7 +173,7 @@ scenario() {
 	rc=$?
 	set -e
 	if ! grep -q "^[A-Z]* $id " "$RES"; then
-		result FAIL "$id" "Szenario abgebrochen (Exit $rc), Ausgaben in $WORK"
+		result FAIL "$id" "scenario aborted (exit $rc), outputs in $WORK"
 	fi
 }
 
@@ -183,16 +183,16 @@ build_js_if_needed() {
 	if compgen -G "$APP_SRC/js/*.mjs" >/dev/null || compgen -G "$APP_SRC/js/*.js" >/dev/null; then
 		return 0
 	fi
-	info "APP_SRC hat kein js/ – baue mit node:24-alpine (npm ci + build)"
+	info "APP_SRC has no js/ – building with node:24-alpine (npm ci + build)"
 	docker run --rm -v "$APP_SRC":/app -w /app node:24-alpine \
 		sh -c 'npm ci --no-audit --no-fund --loglevel=error && npm run build' >"$WORK/js-build.txt" 2>&1 \
-		|| { echo "js-Build fehlgeschlagen, siehe $WORK/js-build.txt" >&2; exit 2; }
+		|| { echo "js build failed, see $WORK/js-build.txt" >&2; exit 2; }
 }
 
 # $1 (optional): function that puts files into the created container before the first start
 start_nc() {
 	local prep=${1:-}
-	info "starte $C aus $IMAGE"
+	info "starting $C from $IMAGE"
 	docker create --name "$C" \
 		-e SQLITE_DATABASE=nextcloud \
 		-e NEXTCLOUD_ADMIN_USER=admin -e NEXTCLOUD_ADMIN_PASSWORD="$PW" \
@@ -210,7 +210,7 @@ start_nc() {
 		fi
 		sleep 2
 	done
-	echo "Nextcloud in $C wurde nicht fertig" >&2
+	echo "Nextcloud in $C did not come up" >&2
 	exit 2
 }
 
@@ -218,7 +218,7 @@ install_groupfolders() {
 	GF_OK=0
 	GF_WHY=''
 	if [[ "${NO_GF:-0}" == 1 ]]; then
-		GF_WHY='NO_GF=1 gesetzt'
+		GF_WHY='NO_GF=1 set'
 		return 0
 	fi
 	local major gfmajor tag
@@ -232,12 +232,12 @@ install_groupfolders() {
 			| sort -V | tail -n1 || true)
 	fi
 	if [[ -z "$tag" ]]; then
-		GF_WHY="keine groupfolders-Release v$gfmajor.x für NC $major auf GitHub gefunden"
+		GF_WHY="no groupfolders release v$gfmajor.x for NC $major found on GitHub"
 		return 0
 	fi
-	info "groupfolders $tag (Quell-Tarball von GitHub, ohne gebautes JS – reicht für occ)"
+	info "groupfolders $tag (source tarball from GitHub, without built JS – enough for occ)"
 	if ! curl -fsSL -o "$WORK/gf.tgz" "https://github.com/nextcloud/groupfolders/archive/refs/tags/$tag.tar.gz"; then
-		GF_WHY="Download groupfolders $tag von GitHub fehlgeschlagen"
+		GF_WHY="download of groupfolders $tag from GitHub failed"
 		return 0
 	fi
 	docker cp "$WORK/gf.tgz" "$C:/tmp/gf.tgz"
@@ -247,14 +247,14 @@ install_groupfolders() {
 	if occ app:enable groupfolders >"$WORK/gf-enable.txt" 2>&1; then
 		GF_OK=1
 	else
-		GF_WHY="groupfolders $tag ließ sich nicht aktivieren: $(tail -n1 "$WORK/gf-enable.txt")"
+		GF_WHY="groupfolders $tag could not be enabled: $(tail -n1 "$WORK/gf-enable.txt")"
 	fi
 }
 
 # $1 (optional): source instead of APP_SRC; $2 (optional): only copy, do not enable
 install_app() {
 	local src=${1:-$APP_SRC}
-	info "kopiere App aus $src"
+	info "copying app from $src"
 	# Like scripts/deploy-test.sh: only what is needed at runtime
 	tar -C "$src" --exclude=./vendor --exclude=./tests --exclude=./.git --exclude=./node_modules \
 		--exclude=./src --exclude=./scripts --exclude=./dev --exclude="*.map" --exclude=./package-lock.json -cf - . \
@@ -294,17 +294,17 @@ s5() {
 	set_sim false
 	retention_run s5
 	local rules
-	rules=$(sql "SELECT COALESCE(target, 'allgemein') || '=' || period_unit || COALESCE(period_value, '')
+	rules=$(sql "SELECT COALESCE(target, 'general') || '=' || period_unit || COALESCE(period_value, '')
 		FROM oc_folder_retention_rules WHERE folder_id IS NULL ORDER BY id" | paste -sd' ')
 	local deleted
 	deleted=$(sql "SELECT COUNT(*) FROM oc_folder_retention_log WHERE mode <> 'simulation' AND status = 'deleted'")
-	if [[ "$rules" =~ ^allgemein=never\ personal=never$ ]] && in_files alice s5-fresh.txt && [[ "$deleted" == 0 ]]; then
-		result PASS S5 "Standardregeln nach Installation: $rules; 60 Tage alte Datei bleibt, 0 Löschungen"
+	if [[ "$rules" =~ ^general=never\ personal=never$ ]] && in_files alice s5-fresh.txt && [[ "$deleted" == 0 ]]; then
+		result PASS S5 "default rules after installation: $rules; 60-day-old file stays, 0 deletions"
 	else
-		local where=weg
-		in_files alice s5-fresh.txt && where=da
-		in_trash alice s5-fresh.txt && where=Papierkorb
-		result FAIL S5 "Standardregeln nach Installation: $rules; Datei: $where; gelöscht laut Log: $deleted"
+		local where=gone
+		in_files alice s5-fresh.txt && where=present
+		in_trash alice s5-fresh.txt && where=trash
+		result FAIL S5 "default rules after installation: $rules; file: $where; deleted according to the log: $deleted"
 	fi
 }
 
@@ -312,7 +312,7 @@ s5() {
 prepare_rules() {
 	occ folder_retention:run --dry-run >/dev/null 2>&1 || true # creates missing default rules
 	set_default_rules day 1
-	info "Standardregeln jetzt: $(sql "SELECT COALESCE(target, 'allgemein') || '=' || COALESCE(period_value, '') || period_unit FROM oc_folder_retention_rules WHERE folder_id IS NULL" | paste -sd' ')"
+	info "default rules now: $(sql "SELECT COALESCE(target, 'general') || '=' || COALESCE(period_value, '') || period_unit FROM oc_folder_retention_rules WHERE folder_id IS NULL" | paste -sd' ')"
 }
 
 s7() {
@@ -323,9 +323,9 @@ s7() {
 	local rows
 	rows=$(logrows s7-sim.txt | paste -sd' ')
 	if in_files alice s7-sim.txt && [[ "$rows" == *simulation:* ]] && [[ "$rows" != *real:* && "$rows" != *live:* ]]; then
-		result PASS S7 "Simulation: Datei bleibt, Log: $rows"
+		result PASS S7 "simulation: file stays, log: $rows"
 	else
-		result FAIL S7 "Simulation: Datei $(in_files alice s7-sim.txt && echo da || echo weg), Log: ${rows:-leer}"
+		result FAIL S7 "simulation: file $(in_files alice s7-sim.txt && echo present || echo gone), log: ${rows:-empty}"
 	fi
 	set_sim false
 }
@@ -343,21 +343,21 @@ s1() {
 		local name="s1-$u.txt" st state
 		st=$(last_status "$name")
 		if in_files "$u" "$name"; then
-			state=noch-da
+			state=still-there
 			ok=0
 		elif in_trash "$u" "$name"; then
-			state=Papierkorb
+			state=trash
 			[[ "$st" == *:deleted* ]] || ok=0
 		else
-			state=ENDGÜLTIG-WEG
+			state=PERMANENTLY-GONE
 			ok=0
 		fi
-		note+="$u=$state[${st:-kein Log}] "
+		note+="$u=$state[${st:-no log}] "
 	done
 	if [[ $ok == 1 ]]; then
-		result PASS S1 "drei Konten in einem Lauf: $note"
+		result PASS S1 "three accounts in one run: $note"
 	else
-		result FAIL S1 "drei Konten in einem Lauf: $note"
+		result FAIL S1 "three accounts in one run: $note"
 	fi
 }
 
@@ -367,21 +367,21 @@ s2() {
 	age s2-restore.txt 10
 	retention_run s2-a
 	if ! in_trash dave s2-restore.txt; then
-		result FAIL S2 "Vorbedingung: erster Lauf hat nicht in den Papierkorb verschoben ($(in_files dave s2-restore.txt && echo noch da || echo endgültig weg); Log: $(logrows s2-restore.txt | paste -sd' '))"
+		result FAIL S2 "precondition: first run did not move to the trash bin ($(in_files dave s2-restore.txt && echo still there || echo permanently gone); log: $(logrows s2-restore.txt | paste -sd' '))"
 		return 0
 	fi
 	occ trashbin:restore dave > "$WORK/s2-restore.txt" 2>&1
 	if ! in_files dave s2-restore.txt; then
-		result FAIL S2 "Wiederherstellen per occ trashbin:restore hat nicht geklappt"
+		result FAIL S2 "restoring via occ trashbin:restore failed"
 		return 0
 	fi
 	retention_run s2-b
 	local rows
 	rows=$(logrows s2-restore.txt | paste -sd' ')
 	if in_files dave s2-restore.txt; then
-		result PASS S2 "wiederhergestellte Datei bleibt im nächsten Lauf; Log: $rows"
+		result PASS S2 "restored file stays in the next run; log: $rows"
 	else
-		result FAIL S2 "wiederhergestellte Datei im nächsten Lauf erneut entfernt ($(in_trash dave s2-restore.txt && echo Papierkorb || echo endgültig)); Log: $rows"
+		result FAIL S2 "restored file removed again in the next run ($(in_trash dave s2-restore.txt && echo trash || echo permanently)); log: $rows"
 	fi
 }
 
@@ -392,9 +392,9 @@ s3() {
 	ext=$(sql "SELECT 'creation_time=' || e.creation_time || ' upload_time=' || e.upload_time FROM oc_filecache_extended e WHERE e.fileid = ?" "$(fid s3-ctime.txt)")
 	retention_run s3
 	if in_files erin s3-ctime.txt; then
-		result PASS S3 "heute hochgeladen mit Client-CTime 2015 ($ext): nicht fällig"
+		result PASS S3 "uploaded today with client ctime 2015 ($ext): not due"
 	else
-		result FAIL S3 "heute hochgeladen mit Client-CTime 2015 ($ext): entfernt, Log: $(logrows s3-ctime.txt | paste -sd' ')"
+		result FAIL S3 "uploaded today with client ctime 2015 ($ext): removed, log: $(logrows s3-ctime.txt | paste -sd' ')"
 	fi
 }
 
@@ -410,9 +410,9 @@ s4() {
 		FROM oc_filecache f LEFT JOIN oc_filecache_extended e ON e.fileid = f.fileid WHERE f.fileid = ?" "$id")
 	retention_run s4
 	if in_files frank s4-scan.txt; then
-		result PASS S4 "per files:scan aufgenommen ($ext): im ersten Lauf nicht fällig"
+		result PASS S4 "picked up by files:scan ($ext): not due in the first run"
 	else
-		result FAIL S4 "per files:scan aufgenommen ($ext): im ersten Lauf entfernt, Log: $(logrows s4-scan.txt | paste -sd' ')"
+		result FAIL S4 "picked up by files:scan ($ext): removed in the first run, log: $(logrows s4-scan.txt | paste -sd' ')"
 	fi
 }
 
@@ -425,17 +425,17 @@ s9() {
 	touch_fs bob
 	docker exec "$C" curl -sf -o /dev/null -u "bob:$PW" -X PROPFIND -H 'Depth: 0' \
 		http://localhost/remote.php/dav/files/bob/s9-share.txt \
-		|| { result FAIL S9 "Vorbedingung: Freigabe bei bob nicht sichtbar"; return 0; }
+		|| { result FAIL S9 "precondition: share not visible for bob"; return 0; }
 	age s9-share.txt 10
 	retention_run s9
 	local rows
 	rows=$(logrows s9-share.txt | paste -sd' ')
 	if ! in_files alice s9-share.txt && in_trash alice s9-share.txt; then
-		result PASS S9 "geteilte Datei liegt in alices Papierkorb; Log: $rows"
+		result PASS S9 "shared file is in alice's trash bin; log: $rows"
 	elif in_files alice s9-share.txt; then
-		result FAIL S9 "geteilte Datei noch bei alice (nur Freigabe entfernt?); Log: $rows"
+		result FAIL S9 "shared file still with alice (only the share removed?); log: $rows"
 	else
-		result FAIL S9 "geteilte Datei endgültig weg; Log: $rows"
+		result FAIL S9 "shared file permanently gone; log: $rows"
 	fi
 }
 
@@ -463,7 +463,7 @@ gf_trashed() {
 
 s8() {
 	if [[ "$GF_OK" != 1 ]]; then
-		result SKIP S8 "groupfolders nicht verfügbar: $GF_WHY"
+		result SKIP S8 "groupfolders not available: $GF_WHY"
 		return 0
 	fi
 	set_sim false
@@ -476,16 +476,16 @@ s8() {
 	put bob s8-bob.txt
 	age s8-bob.txt 10
 	retention_run s8
-	local rows bob=weg
+	local rows bob=gone
 	rows=$(logrows s8-team.txt | paste -sd" ")
-	in_trash bob s8-bob.txt && bob=Papierkorb
-	in_files bob s8-bob.txt && bob=da
+	in_trash bob s8-bob.txt && bob=trash
+	in_files bob s8-bob.txt && bob=present
 	if docker exec "$C" test -f "/var/www/html/data/__groupfolders/$gid/files/s8-team.txt"; then
-		result FAIL S8 "Datei im Team-Ordner noch da; Log: $rows; bobs Datei: $bob"
+		result FAIL S8 "file in the team folder still there; log: $rows; bob's file: $bob"
 	elif gf_trashed s8-team.txt; then
-		result PASS S8 "Datei im Team-Ordner-Papierkorb; Log: $rows; bobs Datei im selben Lauf: $bob"
+		result PASS S8 "file in the team folder trash bin; log: $rows; bob's file in the same run: $bob"
 	else
-		result FAIL S8 "Datei im Team-Ordner ENDGÜLTIG weg (nicht im groupfolders-Papierkorb); Log: $rows; bobs Datei im selben Lauf: $bob"
+		result FAIL S8 "file in the team folder PERMANENTLY gone (not in the groupfolders trash bin); log: $rows; bob's file in the same run: $bob"
 	fi
 }
 
@@ -493,7 +493,7 @@ s8() {
 # the recipient's view must not merely remove the share (B7).
 s11() {
 	if [[ "$GF_OK" != 1 ]]; then
-		result SKIP S11 "groupfolders nicht verfügbar: $GF_WHY"
+		result SKIP S11 "groupfolders not available: $GF_WHY"
 		return 0
 	fi
 	set_sim false
@@ -508,11 +508,11 @@ s11() {
 	retention_run s11
 	rows=$(logrows s11-teamshare.txt | paste -sd" ")
 	if docker exec "$C" test -f "/var/www/html/data/__groupfolders/$gid/files/s11-teamshare.txt"; then
-		result FAIL S11 "Team-Ordner-Datei noch da (nur Freigabe entfernt?); Log: $rows"
+		result FAIL S11 "team folder file still there (only the share removed?); log: $rows"
 	elif gf_trashed s11-teamshare.txt; then
-		result PASS S11 "geteilte Team-Ordner-Datei im groupfolders-Papierkorb; Log: $rows"
+		result PASS S11 "shared team folder file in the groupfolders trash bin; log: $rows"
 	else
-		result FAIL S11 "geteilte Team-Ordner-Datei ENDGÜLTIG weg; Log: $rows"
+		result FAIL S11 "shared team folder file PERMANENTLY gone; log: $rows"
 	fi
 }
 
@@ -552,23 +552,23 @@ s12() {
 	local f state note='' ok=1 rows
 	for f in s12-small.bin s12-big.bin s12-keep.bin; do
 		if in_files ivan "$f"; then
-			state=da
+			state=present
 		elif in_trash ivan "$f"; then
-			state=Papierkorb
+			state=trash
 		else
-			state=ENDGÜLTIG-WEG
+			state=PERMANENTLY-GONE
 			ok=0
 		fi
 		note+="$f=$state "
 	done
 	rows=$(logrows s12-big.bin | paste -sd' ')
-	in_trash ivan s12-small.bin || { ok=0; note+='(kleine Datei nicht im Papierkorb) '; }
+	in_trash ivan s12-small.bin || { ok=0; note+='(small file not in the trash bin) '; }
 	in_files ivan s12-big.bin || ok=0
 	[[ "$rows" == *[Qq]uota* ]] || ok=0 # message in the instance's language (tag_language; fresh: en)
 	if [[ $ok == 1 ]]; then
-		result PASS S12 "Quota fast voll, nach Expire: $note; Log groß: $rows"
+		result PASS S12 "quota almost full, after expire: $note; log big: $rows"
 	else
-		result FAIL S12 "Quota fast voll, nach Expire: $note; Log groß: ${rows:-leer}; Log klein: $(logrows s12-small.bin | paste -sd' ')"
+		result FAIL S12 "quota almost full, after expire: $note; log big: ${rows:-empty}; log small: $(logrows s12-small.bin | paste -sd' ')"
 	fi
 }
 
@@ -590,19 +590,19 @@ s13() {
 		f=${u#*:}
 		u=${u%%:*}
 		if in_files "$u" "$f"; then
-			state=da
+			state=present
 		elif in_trash "$u" "$f"; then
-			state=Papierkorb
+			state=trash
 		else
-			state=ENDGÜLTIG-WEG
+			state=PERMANENTLY-GONE
 			ok=0
 		fi
 		note+="$u/$f=$state[$(last_status "$f")] "
 	done
 	if [[ $ok == 1 ]]; then
-		result PASS S13 "trashbin_size mit falschem Typ: $note"
+		result PASS S13 "trashbin_size with the wrong type: $note"
 	else
-		result FAIL S13 "trashbin_size mit falschem Typ: $note"
+		result FAIL S13 "trashbin_size with the wrong type: $note"
 	fi
 }
 
@@ -624,7 +624,7 @@ s15() {
 	done
 	vers=$(sql "SELECT COUNT(*) FROM oc_filecache WHERE path LIKE 'files_versions/s15-doc.bin.v%'")
 	if [[ "${vers:-0}" -lt 3 ]]; then
-		result FAIL S15 "Vorbedingung: nur ${vers:-0} Versionen angelegt"
+		result FAIL S15 "precondition: only ${vers:-0} versions created"
 		return 0
 	fi
 	age s15-doc.bin 10
@@ -632,16 +632,16 @@ s15() {
 	run_expire_jobs
 	rows=$(logrows s15-doc.bin | paste -sd' ')
 	if in_files oscar s15-doc.bin; then
-		state=da
+		state=present
 	elif in_trash oscar s15-doc.bin; then
-		state=Papierkorb
+		state=trash
 	else
-		state=ENDGÜLTIG-WEG
+		state=PERMANENTLY-GONE
 	fi
-	if [[ $state != ENDGÜLTIG-WEG ]]; then
-		result PASS S15 "Datei mit $vers Versionen bei knapper Quota, nach Expire: $state; Log: ${rows:-leer}"
+	if [[ $state != PERMANENTLY-GONE ]]; then
+		result PASS S15 "file with $vers versions at a tight quota, after expire: $state; log: ${rows:-empty}"
 	else
-		result FAIL S15 "Datei mit $vers Versionen bei knapper Quota: $state nach Expire; Log: ${rows:-leer}"
+		result FAIL S15 "file with $vers versions at a tight quota: $state after expire; log: ${rows:-empty}"
 	fi
 }
 
@@ -654,22 +654,22 @@ s14() {
 	docker exec "$C" curl -sf -o /dev/null -u "erin:$PW" -X COPY \
 		-H "Destination: http://localhost/remote.php/dav/files/erin/s14-copy.txt" \
 		http://localhost/remote.php/dav/files/erin/s14-orig.txt \
-		|| { result FAIL S14 "Vorbedingung: WebDAV-COPY fehlgeschlagen"; return 0; }
+		|| { result FAIL S14 "precondition: WebDAV COPY failed"; return 0; }
 	local ext since
 	ext=$(sql "SELECT 'upload_time=' || COALESCE(e.upload_time, 'NULL') FROM oc_filecache_extended e WHERE e.fileid = ?" "$(fid s14-copy.txt)")
-	since=$(occ config:app:get folder_retention seen_max_fileid 2>/dev/null || echo fehlt)
+	since=$(occ config:app:get folder_retention seen_max_fileid 2>/dev/null || echo missing)
 	retention_run s14
 	if in_files erin s14-copy.txt && in_trash erin s14-orig.txt; then
-		result PASS S14 "Kopie einer 700 Tage alten Datei ($ext, seen_max_fileid=$since) bleibt, Original im Papierkorb"
+		result PASS S14 "copy of a 700-day-old file ($ext, seen_max_fileid=$since) stays, original in the trash bin"
 	else
-		result FAIL S14 "Kopie: $(in_files erin s14-copy.txt && echo da || echo weg) [$(last_status s14-copy.txt)], Original: $(in_trash erin s14-orig.txt && echo Papierkorb || echo nicht im Papierkorb) ($ext, seen_max_fileid=$since)"
+		result FAIL S14 "copy: $(in_files erin s14-copy.txt && echo present || echo gone) [$(last_status s14-copy.txt)], original: $(in_trash erin s14-orig.txt && echo trash || echo not in the trash bin) ($ext, seen_max_fileid=$since)"
 	fi
 }
 
 s10() {
 	set_sim false
 	local n=600
-	info "S10: lege $n fällige Dateien für heidi an"
+	info "S10: creating $n due files for heidi"
 	docker exec "$C" sh -c "mkdir -p /var/www/html/data/heidi/files/s10 && cd /var/www/html/data/heidi/files/s10 \
 		&& i=0; while [ \$i -lt $n ]; do echo \$i > s10-\$i.txt; i=\$((i+1)); done; chown -R www-data:www-data /var/www/html/data/heidi/files/s10"
 	occ files:scan --path=/heidi/files/s10 >/dev/null
@@ -686,12 +686,12 @@ s10() {
 
 	local job
 	job=$(sql "SELECT id FROM oc_jobs WHERE class = ?" 'OCA\FolderRetention\BackgroundJob\RetentionJob')
-	[[ -n "$job" ]] || { result FAIL S10 "RetentionJob nicht in oc_jobs registriert"; return 0; }
+	[[ -n "$job" ]] || { result FAIL S10 "RetentionJob not registered in oc_jobs"; return 0; }
 	# force a new cycle
 	occ config:app:delete folder_retention last_cycle_completed >/dev/null 2>&1 || true
 	occ config:app:delete folder_retention job_cursor >/dev/null 2>&1 || true
 
-	info "S10: Job $job im Hintergrund, dann occ-Lauf parallel"
+	info "S10: job $job in the background, then an occ run in parallel"
 	docker exec -d -u www-data "$C" sh -c "php occ background-job:execute $job --force-execute > /tmp/s10-job.txt 2>&1; echo \$? > /tmp/s10-job.rc"
 	local i started=0
 	for i in $(seq 1 150); do
@@ -724,11 +724,11 @@ s10() {
 	grep -v '^[|+]' "$WORK/s10-occ.txt" \
 		| grep -Eiq 'gesperrt|läuft bereits|laeuft bereits|bereits .*(lauf|läuft)|anderer .*lauf|sperre|locked|already running' \
 		&& lockmsg=1
-	local note="Job gestartet=$started fertig=$job_done, occ-Exit=$occ_rc, Log: ${rows:-leer}, Papierkorb=$trashed übrig=$remain verloren=$lost, Doppel-Log-Dateien=$dup, Sperrmeldung=$lockmsg"
+	local note="job started=$started done=$job_done, occ exit=$occ_rc, log: ${rows:-empty}, trash=$trashed left=$remain lost=$lost, files logged twice=$dup, lock message=$lockmsg"
 	if [[ $started == 0 ]]; then
-		result FAIL S10 "Job hat nicht vor dem occ-Lauf angefangen – keine Überlappung prüfbar ($note)"
+		result FAIL S10 "job did not start before the occ run – no overlap to check ($note)"
 	elif [[ $job_done == 0 ]]; then
-		result FAIL S10 "Job nach 300 s nicht fertig ($note)"
+		result FAIL S10 "job not done after 300 s ($note)"
 	elif [[ "$dup" == 0 && $lost == 0 && $lockmsg == 1 ]]; then
 		result PASS S10 "$note"
 	else
@@ -747,7 +747,7 @@ s16() {
 		docker exec "$C" curl -sf -o /dev/null -u "peggy:$PW" -X MKCOL "http://localhost/remote.php/dav/files/peggy/$d"
 		put peggy "$d/Bericht.txt"
 		id=$(fid_path peggy "$d/Bericht.txt")
-		[[ -n "$id" ]] || { result FAIL S16 "Vorbedingung: $d/Bericht.txt nicht im Filecache"; return 0; }
+		[[ -n "$id" ]] || { result FAIL S16 "precondition: $d/Bericht.txt not in the filecache"; return 0; }
 		age_id "$id" 10
 		ids+=("$id")
 	done
@@ -757,7 +757,7 @@ s16() {
 			docker exec "$C" curl -sf -o /dev/null -u "peggy:$PW" -X MKCOL "http://localhost/remote.php/dav/files/peggy/Team16/$d"
 			put peggy "Team16/$d/s16-scan.pdf"
 			id=$(sql "SELECT fileid FROM oc_filecache WHERE name = 's16-scan.pdf' AND path LIKE ? AND path NOT LIKE '%trash%'" "%/$d/s16-scan.pdf")
-			[[ -n "$id" ]] || { result FAIL S16 "Vorbedingung: Team16/$d/s16-scan.pdf nicht im Filecache"; return 0; }
+			[[ -n "$id" ]] || { result FAIL S16 "precondition: Team16/$d/s16-scan.pdf not in the filecache"; return 0; }
 			age_id "$id" 10
 			gids+=("$id")
 		done
@@ -766,7 +766,7 @@ s16() {
 	local trashed contents remain rows want ok=1 note gf=''
 	trashed=$(docker exec "$C" sh -c "ls /var/www/html/data/peggy/files_trashbin/files/ 2>/dev/null | grep -c '^Bericht\.txt\.d' || true")
 	contents=$(docker exec "$C" sh -c 'cat /var/www/html/data/peggy/files_trashbin/files/Bericht.txt.d* 2>/dev/null' | sort | paste -sd',')
-	want='Inhalt dA/Bericht.txt,Inhalt dB/Bericht.txt,Inhalt dC/Bericht.txt'
+	want='Content dA/Bericht.txt,Content dB/Bericht.txt,Content dC/Bericht.txt'
 	remain=$(docker exec "$C" sh -c 'ls /var/www/html/data/peggy/files/dA /var/www/html/data/peggy/files/dB /var/www/html/data/peggy/files/dC 2>/dev/null | grep -c Bericht || true')
 	rows=$(sql "SELECT mode || ':' || status || '=' || COUNT(*) FROM oc_folder_retention_log WHERE file_id IN ($(IFS=,; echo "${ids[*]}")) GROUP BY mode, status" | paste -sd' ')
 	[[ "$trashed" == 3 && "$contents" == "$want" && "$remain" == 0 && "$rows" == 'real:deleted=3' ]] || ok=0
@@ -776,15 +776,15 @@ s16() {
 		gdisk=$(docker exec "$C" sh -c "find /var/www/html/data/__groupfolders -path '*trash*' -name 's16-scan.pdf.d*' | wc -l")
 		grows=$(sql "SELECT mode || ':' || status || '=' || COUNT(*) FROM oc_folder_retention_log WHERE file_id IN ($(IFS=,; echo "${gids[*]}")) GROUP BY mode, status" | paste -sd' ')
 		[[ "$gtrash" == 2 && "$gdisk" == 2 && "$grows" == 'real:deleted=2' ]] || ok=0
-		gf="; Team-Ordner: Papierkorb-DB=$gtrash Platte=$gdisk Log=${grows:-leer}"
+		gf="; team folder: trash DB=$gtrash disk=$gdisk log=${grows:-empty}"
 	else
-		gf="; Team-Ordner nicht geprüft ($GF_WHY)"
+		gf="; team folder not checked ($GF_WHY)"
 	fi
-	note="Papierkorb=$trashed Bericht.txt.d* [${contents:-leer}], übrig=$remain, Log=${rows:-leer}$gf"
+	note="trash=$trashed Bericht.txt.d* [${contents:-empty}], left=$remain, log=${rows:-empty}$gf"
 	if [[ $ok == 1 ]]; then
-		result PASS S16 "drei gleichnamige Dateien in einem Lauf: $note"
+		result PASS S16 "three files with the same name in one run: $note"
 	else
-		result FAIL S16 "drei gleichnamige Dateien in einem Lauf: $note"
+		result FAIL S16 "three files with the same name in one run: $note"
 	fi
 }
 
@@ -806,15 +806,15 @@ s18() {
 	docker exec "$C" curl -sf -o /dev/null -u "victor:$PW" -X COPY \
 		-H "Destination: http://localhost/remote.php/dav/files/victor/s18-copy.txt" \
 		http://localhost/remote.php/dav/files/victor/s18-orig.txt \
-		|| { result FAIL S18 "Vorbedingung: WebDAV-COPY fehlgeschlagen"; return 0; }
+		|| { result FAIL S18 "precondition: WebDAV COPY failed"; return 0; }
 	local ext a b
 	ext=$(sql "SELECT 'fileid=' || f.fileid || ' upload_time=' || COALESCE(e.upload_time, 'NULL') FROM oc_filecache f LEFT JOIN oc_filecache_extended e ON e.fileid = f.fileid WHERE f.fileid = ?" "$(fid s18-copy.txt)")
 	retention_run s18-a
-	a=$(in_files victor s18-copy.txt && echo da || echo weg)
+	a=$(in_files victor s18-copy.txt && echo present || echo gone)
 	retention_run s18-b
-	b=$(in_files victor s18-copy.txt && echo da || echo weg)
-	local note="Grenze nach Installation=${mark:-fehlt}, Update-Grenze=$max, Kopie ($ext): Lauf 1 $a, Lauf 2 $b; Original: $(in_trash victor s18-orig.txt && echo Papierkorb || echo nicht im Papierkorb); Log Kopie: $(logrows s18-copy.txt | paste -sd' ')"
-	if [[ -n "$mark" && $a == da && $b == da ]] && in_trash victor s18-orig.txt; then
+	b=$(in_files victor s18-copy.txt && echo present || echo gone)
+	local note="mark after installation=${mark:-missing}, update mark=$max, copy ($ext): run 1 $a, run 2 $b; original: $(in_trash victor s18-orig.txt && echo trash || echo not in the trash bin); log copy: $(logrows s18-copy.txt | paste -sd' ')"
+	if [[ -n "$mark" && $a == present && $b == present ]] && in_trash victor s18-orig.txt; then
 		result PASS S18 "$note"
 	else
 		result FAIL S18 "$note"
@@ -829,7 +829,7 @@ s17() {
 	age s17-web.txt 10
 	local job before after ran api i rows
 	job=$(sql "SELECT id FROM oc_jobs WHERE class = ?" 'OCA\FolderRetention\BackgroundJob\RetentionJob')
-	[[ -n "$job" ]] || { result FAIL S17 "RetentionJob nicht in oc_jobs registriert"; return 0; }
+	[[ -n "$job" ]] || { result FAIL S17 "RetentionJob not registered in oc_jobs"; return 0; }
 	occ config:app:delete folder_retention last_cycle_completed >/dev/null 2>&1 || true
 	occ config:app:delete folder_retention job_cursor >/dev/null 2>&1 || true
 	before=$(blocks)
@@ -846,8 +846,8 @@ s17() {
 	after=$(blocks)
 	rows=$(logrows s17-web.txt | paste -sd' ')
 	local mode
-	mode=$(grep -o '"cronMode":"[a-z]*"' <<<"$api" || echo "cronMode fehlt")
-	local note="Job lief=$([[ "${ran:-0}" -gt 0 ]] && echo ja || echo nein), Datei: $(in_files trent s17-web.txt && echo da || (in_trash trent s17-web.txt && echo Papierkorb || echo ENDGÜLTIG-WEG)), Log: ${rows:-leer}, Sperren unverändert: $([[ "$before" == "$after" ]] && echo ja || echo "nein ($after)"), API: $mode"
+	mode=$(grep -o '"cronMode":"[a-z]*"' <<<"$api" || echo "cronMode missing")
+	local note="job ran=$([[ "${ran:-0}" -gt 0 ]] && echo yes || echo no), file: $(in_files trent s17-web.txt && echo present || (in_trash trent s17-web.txt && echo trash || echo PERMANENTLY-GONE)), log: ${rows:-empty}, locks unchanged: $([[ "$before" == "$after" ]] && echo yes || echo "no ($after)"), API: $mode"
 	if [[ "${ran:-0}" -gt 0 ]] && in_files trent s17-web.txt && [[ -z "$rows" && "$before" == "$after" && "$mode" == '"cronMode":"ajax"' ]]; then
 		result PASS S17 "$note"
 	else
@@ -875,7 +875,7 @@ s19() {
 	out3=$(occ folder_retention:run --unblock=it:b 2>&1 | head -n 3 | paste -sd' ' || true)
 	state3=$(keys)
 	sql "DELETE FROM oc_folder_retention_block WHERE block_key IN ('it:a', 'it:b')"
-	local note="API A aufheben: HTTP $code1 → übrig [${state1:-keine}]; API B mit altem Zeitpunkt: HTTP $code2 → übrig [${state2:-keine}]; occ --unblock=it:b → übrig [${state3:-keine}] ($out3)"
+	local note="API lift A: HTTP $code1 → left [${state1:-none}]; API B with an old timestamp: HTTP $code2 → left [${state2:-none}]; occ --unblock=it:b → left [${state3:-none}] ($out3)"
 	if [[ "$code1" == 200 && "$state1" == '"it:b"' && "$code2" == 200 && "$state2" == '"it:b"' && -z "$state3" ]]; then
 		result PASS S19 "$note"
 	else
@@ -896,7 +896,7 @@ s20() {
 		docker exec "$C" test -f /tmp/s20-ready && break
 		sleep 0.2
 	done
-	docker exec "$C" test -f /tmp/s20-ready || { wait "$pid" || true; result FAIL S20 "Prozess P nicht bereit: $(tail -n3 "$WORK/s20-p.txt" | paste -sd' ')"; return 0; }
+	docker exec "$C" test -f /tmp/s20-ready || { wait "$pid" || true; result FAIL S20 "process P not ready: $(tail -n3 "$WORK/s20-p.txt" | paste -sd' ')"; return 0; }
 	docker exec -u www-data "$C" php /tmp/fret-proc.php block it:s20c 200 > "$WORK/s20-q.txt" 2>&1
 	docker exec "$C" touch /tmp/s20-go
 	wait "$pid" || true
@@ -905,14 +905,14 @@ s20() {
 	rows=$(blocks 'it:s20%')
 	# legacy entry in the app config: taken over on the next access and removed there
 	occ config:app:set folder_retention blocked_roots --value='{"it:s20legacy":{"label":"Alt","reason":"vor 0.8","at":50}}' >/dev/null
-	occ folder_retention:run --unblock=it:s20-gibt-es-nicht > "$WORK/s20-legacy.txt" 2>&1 || true
+	occ folder_retention:run --unblock=it:s20-does-not-exist > "$WORK/s20-legacy.txt" 2>&1 || true
 	legacy=$(blocks 'it:s20legacy')
-	cfg=$(occ config:app:get folder_retention blocked_roots 2>/dev/null || echo entfernt)
+	cfg=$(occ config:app:get folder_retention blocked_roots 2>/dev/null || echo removed)
 	mig=$(grep -c 'it:s20legacy' "$WORK/s20-legacy.txt" || true)
 	sql "DELETE FROM oc_folder_retention_block WHERE block_key LIKE 'it:s20%'"
 	docker exec "$C" rm -f /tmp/s20-ready /tmp/s20-go
-	local note="P vor/nach fremder Sperre: $p; Sperren danach: [${rows:-keine}]; Altbestand: Tabelle [${legacy:-fehlt}], App-Config $cfg, occ zeigt ihn $mig×"
-	if [[ "$p" == 'before=0 after=1' && "$rows" == 'it:s20c@200 it:s20d@300' && "$legacy" == 'it:s20legacy@50' && "$cfg" == entfernt && "$mig" -ge 1 ]]; then
+	local note="P before/after another lock: $p; locks afterwards: [${rows:-none}]; legacy: table [${legacy:-missing}], app config $cfg, occ shows it $mig×"
+	if [[ "$p" == 'before=0 after=1' && "$rows" == 'it:s20c@200 it:s20d@300' && "$legacy" == 'it:s20legacy@50' && "$cfg" == removed && "$mig" -ge 1 ]]; then
 		result PASS S20 "$note"
 	else
 		result FAIL S20 "$note"
@@ -931,22 +931,22 @@ s21() {
 	put walter "$b"
 	ida=$(fid_path walter "$a")
 	idb=$(fid_path walter "$b")
-	[[ -n "$ida" && -n "$idb" ]] || { result FAIL S21 "Vorbedingung: lange Dateien nicht im Filecache"; return 0; }
+	[[ -n "$ida" && -n "$idb" ]] || { result FAIL S21 "precondition: long files not in the filecache"; return 0; }
 	age_id "$ida" 10
 	age_id "$idb" 10
 	retention_run s21
 	local names contents fc rows want ok=1
 	names=$(docker exec "$C" sh -c "ls /var/www/html/data/walter/files_trashbin/files/ 2>/dev/null | grep -c '^aaaa' || true")
-	contents=$(docker exec "$C" sh -c 'cat /var/www/html/data/walter/files_trashbin/files/aaaa* 2>/dev/null' | sed 's/^Inhalt a*\([12]\)b*\.txt$/Inhalt \1/' | sort | paste -sd',')
+	contents=$(docker exec "$C" sh -c 'cat /var/www/html/data/walter/files_trashbin/files/aaaa* 2>/dev/null' | sed 's/^Content a*\([12]\)b*\.txt$/Content \1/' | sort | paste -sd',')
 	fc=$(sql "SELECT COUNT(*) FROM oc_filecache WHERE fileid IN (?, ?) AND path LIKE 'files_trashbin/files/%'" "$ida" "$idb")
 	rows=$(sql "SELECT mode || ':' || status || '=' || COUNT(*) FROM oc_folder_retention_log WHERE file_id IN (?, ?) GROUP BY mode, status" "$ida" "$idb" | paste -sd' ')
-	want='Inhalt 1,Inhalt 2'
+	want='Content 1,Content 2'
 	[[ "$names" == 2 && "$contents" == "$want" && "$fc" == 2 && "$rows" == 'real:deleted=2' ]] || ok=0
-	local note="Papierkorb-Einträge=$names [${contents:-leer}], im Filecache als Papierkorb=$fc, Log=${rows:-leer}"
+	local note="trash entries=$names [${contents:-empty}], in the filecache as trash=$fc, log=${rows:-empty}"
 	if [[ $ok == 1 ]]; then
-		result PASS S21 "zwei lange, gleich gekürzte Namen in einem Lauf: $note"
+		result PASS S21 "two long names shortened alike in one run: $note"
 	else
-		result FAIL S21 "zwei lange, gleich gekürzte Namen in einem Lauf: $note"
+		result FAIL S21 "two long names shortened alike in one run: $note"
 	fi
 }
 
@@ -961,24 +961,24 @@ s22() {
 		docker exec "$C" curl -sf -o /dev/null -u "rupert:$PW" -X MKCOL "http://localhost/remote.php/dav/files/rupert/$d"
 		put rupert "$d/Protokoll.pdf"
 		id=$(fid_path rupert "$d/Protokoll.pdf")
-		[[ -n "$id" ]] || { result FAIL S22 "Vorbedingung: $d/Protokoll.pdf nicht im Filecache"; return 0; }
+		[[ -n "$id" ]] || { result FAIL S22 "precondition: $d/Protokoll.pdf not in the filecache"; return 0; }
 		ids+=("$id")
 	done
 	out=$(docker exec -u www-data "$C" php /tmp/fret-proc.php samesecond "${ids[0]}" "${ids[1]}" 2>&1 | tail -n1)
 	local trashed contents remain want same ok=1
 	trashed=$(docker exec "$C" sh -c "ls /var/www/html/data/rupert/files_trashbin/files/ 2>/dev/null | grep -c '^Protokoll\.pdf\.d' || true")
 	contents=$(docker exec "$C" sh -c 'cat /var/www/html/data/rupert/files_trashbin/files/Protokoll.pdf.d* 2>/dev/null' | sort | paste -sd',')
-	want='Inhalt s22A/Protokoll.pdf,Inhalt s22B/Protokoll.pdf'
+	want='Content s22A/Protokoll.pdf,Content s22B/Protokoll.pdf'
 	remain=$(docker exec "$C" sh -c 'ls /var/www/html/data/rupert/files/s22A /var/www/html/data/rupert/files/s22B 2>/dev/null | grep -c Protokoll || true')
 	# Did the test really create the situation (run 2 starts in the second in which run 1 ended)?
-	same=nein
-	[[ "$out" =~ aEnd=([0-9]+)\ bStart=([0-9]+) && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] && same=ja
+	same=no
+	[[ "$out" =~ aEnd=([0-9]+)\ bStart=([0-9]+) && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] && same=yes
 	[[ "$out" == 'a=deleted b=deleted '* && "$trashed" == 2 && "$contents" == "$want" && "$remain" == 0 ]] || ok=0
-	local note="$out; Lauf 2 in derselben Sekunde begonnen: $same; Papierkorb=$trashed Protokoll.pdf.d* [${contents:-leer}], übrig=$remain"
+	local note="$out; run 2 started in the same second: $same; trash=$trashed Protokoll.pdf.d* [${contents:-empty}], left=$remain"
 	if [[ $ok == 1 ]]; then
-		result PASS S22 "gleichnamige Datei über die Laufgrenze: $note"
+		result PASS S22 "same-named file across the run boundary: $note"
 	else
-		result FAIL S22 "gleichnamige Datei über die Laufgrenze: $note"
+		result FAIL S22 "same-named file across the run boundary: $note"
 	fi
 }
 
@@ -991,30 +991,30 @@ s28() {
 	local id
 	id=$(sql "SELECT file_id FROM oc_folder_retention_log WHERE path LIKE ? AND mode = 'real' AND status = 'deleted'" "%s28-late.txt" | tail -n1)
 	if [[ -z "$id" ]] || ! in_trash dave s28-late.txt; then
-		result FAIL S28 "Vorbedingung: erster Lauf hat nicht in den Papierkorb verschoben (Log: $(logrows s28-late.txt | paste -sd' '))"
+		result FAIL S28 "precondition: first run did not move to the trash bin (log: $(logrows s28-late.txt | paste -sd' '))"
 		return 0
 	fi
 	# deletion 10 days ago (rule 1 day), restored today
 	sql "UPDATE oc_folder_retention_log SET deleted_at = ? WHERE file_id = ?" "$(ago 10)" "$id"
 	occ trashbin:restore dave > "$WORK/s28-restore.txt" 2>&1
 	if ! in_files dave s28-late.txt; then
-		result FAIL S28 "Wiederherstellen per occ trashbin:restore hat nicht geklappt"
+		result FAIL S28 "restoring via occ trashbin:restore failed"
 		return 0
 	fi
-	local before seen1 stays=nein again=nein
+	local before seen1 stays=no again=no
 	before=$(now)
 	retention_run s28-b
 	seen1=$(sql "SELECT first_seen FROM oc_folder_retention_seen WHERE file_id = ?" "$id")
-	in_files dave s28-late.txt && stays=ja
+	in_files dave s28-late.txt && stays=yes
 	# due again two days after the restore: retention period from the restore, not "never"
 	seen "$id" "$(ago 2)"
 	retention_run s28-c
-	in_trash dave s28-late.txt && ! in_files dave s28-late.txt && again=ja
-	local note="bleibt nach Wiederherstellung: $stays (first_seen ${seen1:-fehlt}, Laufbeginn $before); 2 Tage danach im Papierkorb: $again; Log: $(logrows s28-late.txt | paste -sd' ')"
-	if [[ $stays == ja && -n "$seen1" && "$seen1" -ge "$before" && $again == ja ]]; then
-		result PASS S28 "Wiederherstellung 10 Tage nach Löschung: $note"
+	in_trash dave s28-late.txt && ! in_files dave s28-late.txt && again=yes
+	local note="stays after restore: $stays (first_seen ${seen1:-missing}, run start $before); in the trash bin 2 days later: $again; log: $(logrows s28-late.txt | paste -sd' ')"
+	if [[ $stays == yes && -n "$seen1" && "$seen1" -ge "$before" && $again == yes ]]; then
+		result PASS S28 "restore 10 days after deletion: $note"
 	else
-		result FAIL S28 "Wiederherstellung 10 Tage nach Löschung: $note"
+		result FAIL S28 "restore 10 days after deletion: $note"
 	fi
 }
 
@@ -1025,13 +1025,13 @@ s29() {
 	age s29-worker.txt 10
 	local id out where
 	id=$(fid s29-worker.txt)
-	[[ -n "$id" ]] || { result FAIL S29 "Vorbedingung: s29-worker.txt nicht im Filecache"; return 0; }
+	[[ -n "$id" ]] || { result FAIL S29 "precondition: s29-worker.txt not in the filecache"; return 0; }
 	out=$(docker exec -u www-data "$C" php /tmp/fret-proc.php trashthrow "$id" 2>&1 | tail -n1)
-	if in_files erin s29-worker.txt; then where=bleibt; elif in_trash erin s29-worker.txt; then where=Papierkorb; else where=ENDGÜLTIG-WEG; fi
-	if [[ "$out" == 'a=error b=error '* && ( "$out" == *Prozessneustart* || "$out" == *'process restart'* ) && $where == bleibt ]]; then
-		result PASS S29 "Papierkorb-Ausnahme, zweiter Lauf im selben Prozess: $out; Datei $where"
+	if in_files erin s29-worker.txt; then where=stays; elif in_trash erin s29-worker.txt; then where=trash; else where=PERMANENTLY-GONE; fi
+	if [[ "$out" == 'a=error b=error '* && ( "$out" == *Prozessneustart* || "$out" == *'process restart'* ) && $where == stays ]]; then
+		result PASS S29 "trash bin exception, second run in the same process: $out; file $where"
 	else
-		result FAIL S29 "Papierkorb-Ausnahme, zweiter Lauf im selben Prozess: $out; Datei $where"
+		result FAIL S29 "trash bin exception, second run in the same process: $out; file $where"
 	fi
 }
 
@@ -1059,7 +1059,7 @@ s30() {
 	set_sim false
 	rows=$(sql "SELECT rule_id || '/' || COALESCE(rule_label, '') || '/' || reference_source FROM oc_folder_retention_log
 		WHERE path LIKE ? ORDER BY id" "%s30-sim.txt" | paste -sd' ')
-	local note="Einträge nach Lauf 1..5: $n1 $n2 $n3 $n4 $n5 (erwartet 1 2 2 3 3); $rows"
+	local note="entries after run 1..5: $n1 $n2 $n3 $n4 $n5 (expected 1 2 2 3 3); $rows"
 	if [[ "$n1 $n2 $n3 $n4 $n5" == "1 2 2 3 3" ]] && in_files alice s30-sim.txt; then
 		result PASS S30 "$note"
 	else
@@ -1082,13 +1082,13 @@ s6() {
 	local st
 	st=$(logrows s6-notrash.txt | paste -sd' ')
 	if in_files grace s6-notrash.txt && [[ "$st" != *:deleted* ]]; then
-		result PASS S6 "Papierkorb nur für Gruppe, Besitzer nicht drin: Datei bleibt; Log: ${st:-leer}"
+		result PASS S6 "trash bin only for a group, owner not in it: file stays; log: ${st:-empty}"
 	elif in_trash grace s6-notrash.txt; then
-		result PASS S6 "Papierkorb nur für Gruppe: Datei trotzdem im Papierkorb des Besitzers; Log: ${st:-leer}"
+		result PASS S6 "trash bin only for a group: file in the owner's trash bin anyway; log: ${st:-empty}"
 	elif in_files grace s6-notrash.txt; then
-		result FAIL S6 "Datei noch da, aber Log meldet gelöscht: $st"
+		result FAIL S6 "file still there, but the log reports it deleted: $st"
 	else
-		result FAIL S6 "Papierkorb nur für Gruppe: Datei ENDGÜLTIG gelöscht; Log: ${st:-leer}"
+		result FAIL S6 "trash bin only for a group: file PERMANENTLY deleted; log: ${st:-empty}"
 	fi
 }
 
@@ -1133,11 +1133,11 @@ obj_state() {
 	local storage
 	storage=$(sql "SELECT numeric_id FROM oc_storages WHERE id = ?" "object::user:$1")
 	if [[ -n "$(sql "SELECT fileid FROM oc_filecache WHERE storage = ? AND path = ?" "$storage" "files/$2")" ]]; then
-		echo da
+		echo present
 	elif [[ -n "$(sql "SELECT fileid FROM oc_filecache WHERE storage = ? AND path LIKE ?" "$storage" "files_trashbin/files/$2.d%")" ]]; then
-		echo Papierkorb
+		echo trash
 	else
-		echo ENDGÜLTIG-WEG
+		echo PERMANENTLY-GONE
 	fi
 }
 
@@ -1152,7 +1152,7 @@ s23() {
 	local kind
 	kind=$(sql "SELECT COUNT(*) FROM oc_storages WHERE id LIKE 'object::%'")
 	if [[ "${kind:-0}" == 0 ]]; then
-		result FAIL S23 "Vorbedingung: kein Objektspeicher als Primärspeicher (oc_storages ohne object::)"
+		result FAIL S23 "precondition: no object store as primary storage (oc_storages without object::)"
 		return 0
 	fi
 	side_user olga
@@ -1160,14 +1160,14 @@ s23() {
 	put_bytes olga s23-keep.bin 3145728
 	put_bytes olga s23-old.bin 1468006
 	docker exec "$C" curl -sf -o /dev/null -u "olga:$PW" -X DELETE http://localhost/remote.php/dav/files/olga/s23-old.bin \
-		|| { result FAIL S23 "Vorbedingung: Löschen von s23-old.bin fehlgeschlagen"; return 0; }
+		|| { result FAIL S23 "precondition: deleting s23-old.bin failed"; return 0; }
 	put_bytes olga s23-target.bin 2097152
 	prepare_rules
 	set_sim false
 	age s23-target.bin 10
 	local storage sizes
 	storage=$(sql "SELECT numeric_id FROM oc_storages WHERE id = ?" 'object::user:olga')
-	sizes=$(sql "SELECT CASE path WHEN '' THEN 'Wurzel' ELSE path END || '=' || size FROM oc_filecache WHERE storage = ? AND path IN ('', 'files', 'files_trashbin') ORDER BY path" "$storage" | paste -sd' ')
+	sizes=$(sql "SELECT CASE path WHEN '' THEN 'root' ELSE path END || '=' || size FROM oc_filecache WHERE storage = ? AND path IN ('', 'files', 'files_trashbin') ORDER BY path" "$storage" | paste -sd' ')
 	retention_run s23
 	occ trashbin:expire olga >/dev/null 2>&1 || true
 	run_expire_jobs
@@ -1175,13 +1175,13 @@ s23() {
 	target=$(obj_state olga s23-target.bin)
 	old=$(obj_state olga s23-old.bin)
 	rows=$(logrows s23-target.bin | paste -sd' ')
-	local note="Objektspeicher, Quota 10 MB ($sizes), nach Lauf + Expire: Ziel=$target, alter Papierkorb-Eintrag=$old; Log: ${rows:-leer}"
-	if [[ $target == ENDGÜLTIG-WEG ]]; then
+	local note="object store, quota 10 MB ($sizes), after run + expire: target=$target, old trash entry=$old; log: ${rows:-empty}"
+	if [[ $target == PERMANENTLY-GONE ]]; then
 		result FAIL S23 "$note"
-	elif [[ $target == Papierkorb || "$rows" == *[Qq]uota* ]]; then
+	elif [[ $target == trash || "$rows" == *[Qq]uota* ]]; then
 		result PASS S23 "$note"
 	else
-		result FAIL S23 "$note (Datei noch da, aber Log nennt keine Quota)"
+		result FAIL S23 "$note (file still there, but the log names no quota)"
 	fi
 }
 
@@ -1192,7 +1192,7 @@ s24() {
 	local C="$C-up" old="$WORK/app-$OLD_REV"
 	mkdir -p "$old"
 	git -C "$REPO" archive "$OLD_REV" | tar -x -C "$old" \
-		|| { result FAIL S24 "Vorbedingung: git archive $OLD_REV fehlgeschlagen"; return 0; }
+		|| { result FAIL S24 "precondition: git archive $OLD_REV failed"; return 0; }
 	# raise the starting state to APP_SRC's max-version only in this copy – otherwise
 	# OLD_REV (max-version 34) cannot even be installed on e.g. NC 35
 	local maxv
@@ -1208,34 +1208,34 @@ s24() {
 	retention_run s24-a # simulation mode: cycle complete → seen_since
 	local since
 	since=$(occ config:app:get folder_retention seen_since 2>/dev/null || true)
-	[[ -n "$since" ]] || { result FAIL S24 "Vorbedingung: $OLD_REV hat seen_since nicht gesetzt"; return 0; }
+	[[ -n "$since" ]] || { result FAIL S24 "precondition: $OLD_REV did not set seen_since"; return 0; }
 	sleep 2
 	docker exec "$C" curl -sf -o /dev/null -u "uwe:$PW" -X COPY \
 		-H "Destination: http://localhost/remote.php/dav/files/uwe/s24-kopie.txt" \
 		http://localhost/remote.php/dav/files/uwe/s24-orig.txt \
-		|| { result FAIL S24 "Vorbedingung: WebDAV-COPY fehlgeschlagen"; return 0; }
+		|| { result FAIL S24 "precondition: WebDAV COPY failed"; return 0; }
 	retention_run s24-b # records "first seen" for the copy
 	local id seen pre
 	id=$(fid s24-kopie.txt)
 	seen=$(sql "SELECT first_seen FROM oc_folder_retention_seen WHERE file_id = ?" "$id")
 	pre=$(occ folder_retention:run --dry-run 2>&1 | grep -c 's24-kopie' || true)
 	if [[ -z "$seen" || "$seen" -le "$since" || "$pre" != 0 ]]; then
-		result FAIL S24 "Vorbedingung unter $OLD_REV: seen_since=$since, Kopie first_seen=${seen:-fehlt}, im Dry-Run fällig: $pre"
+		result FAIL S24 "precondition under $OLD_REV: seen_since=$since, copy first_seen=${seen:-missing}, due in the dry run: $pre"
 		return 0
 	fi
 	install_app "$APP_SRC" copy-only
-	occ upgrade >"$WORK/s24-upgrade.txt" 2>&1 || { result FAIL S24 "occ upgrade fehlgeschlagen: $(tail -n2 "$WORK/s24-upgrade.txt" | paste -sd' ')"; return 0; }
+	occ upgrade >"$WORK/s24-upgrade.txt" 2>&1 || { result FAIL S24 "occ upgrade failed: $(tail -n2 "$WORK/s24-upgrade.txt" | paste -sd' ')"; return 0; }
 	local mark left version
 	version=$(occ app:list --output=json | grep -o '"folder_retention":"[^"]*"')
-	mark=$(occ config:app:get folder_retention seen_max_fileid 2>/dev/null || echo fehlt)
-	left=$(occ config:app:get folder_retention seen_since 2>/dev/null || echo gelöscht)
+	mark=$(occ config:app:get folder_retention seen_max_fileid 2>/dev/null || echo missing)
+	left=$(occ config:app:get folder_retention seen_since 2>/dev/null || echo deleted)
 	set_sim false
 	retention_run s24-c
 	local kopie orig
-	kopie=$(in_files uwe s24-kopie.txt && echo da || (in_trash uwe s24-kopie.txt && echo Papierkorb || echo weg))
-	orig=$(in_trash uwe s24-orig.txt && echo Papierkorb || (in_files uwe s24-orig.txt && echo da || echo weg))
-	local note="$version, seen_since=$since → $left, seen_max_fileid=$mark, Kopie fileid=$id first_seen=$seen: $kopie [$(last_status s24-kopie.txt)], Original: $orig"
-	if [[ $kopie == da && $orig == Papierkorb && $left == gelöscht && "$mark" =~ ^[0-9]+$ && "$mark" -lt "$id" ]]; then
+	kopie=$(in_files uwe s24-kopie.txt && echo present || (in_trash uwe s24-kopie.txt && echo trash || echo gone))
+	orig=$(in_trash uwe s24-orig.txt && echo trash || (in_files uwe s24-orig.txt && echo present || echo gone))
+	local note="$version, seen_since=$since → $left, seen_max_fileid=$mark, copy fileid=$id first_seen=$seen: $kopie [$(last_status s24-kopie.txt)], original: $orig"
+	if [[ $kopie == present && $orig == trash && $left == deleted && "$mark" =~ ^[0-9]+$ && "$mark" -lt "$id" ]]; then
 		result PASS S24 "$note"
 	else
 		result FAIL S24 "$note"
@@ -1248,7 +1248,7 @@ s24() {
 # and the app's log must name it.
 s25() {
 	if [[ "$GF_OK" != 1 ]]; then
-		result SKIP S25 "groupfolders nicht verfügbar: $GF_WHY"
+		result SKIP S25 "groupfolders not available: $GF_WHY"
 		return 0
 	fi
 	set_sim false
@@ -1261,14 +1261,14 @@ s25() {
 	local team own by ok=1
 	team=$(last_status s25-team.txt)
 	own=$(last_status s25-carol.txt)
-	by=$(sql "SELECT deleted_by FROM oc_group_folders_trash WHERE name = 's25-team.txt'" 2>/dev/null || echo 'Spalte fehlt')
+	by=$(sql "SELECT deleted_by FROM oc_group_folders_trash WHERE name = 's25-team.txt'" 2>/dev/null || echo 'column missing')
 	gf_trashed s25-team.txt || ok=0
 	in_trash carol s25-carol.txt || ok=0
 	# message in the instance's language (tag_language; fresh installation: en)
 	[[ "$team" == 'real:deleted ('*'über Konto bob '*'gelöscht hat folder_retention'* || "$team" == 'real:deleted ('*'via account bob '*'folder_retention deleted it'* ]] || ok=0
 	[[ "$own" == 'real:deleted ('*'über Konto carol '* || "$own" == 'real:deleted ('*'via account carol '* ]] || ok=0
-	[[ "$by" == bob || "$by" == 'Spalte fehlt' ]] || ok=0
-	local note="Team-Ordner-Papierkorb „gelöscht von“: ${by:-leer}; Log Team: ${team:-leer}; Log carol: ${own:-leer}"
+	[[ "$by" == bob || "$by" == 'column missing' ]] || ok=0
+	local note="team folder trash bin \"deleted by\": ${by:-empty}; log team: ${team:-empty}; log carol: ${own:-empty}"
 	if [[ $ok == 1 ]]; then
 		result PASS S25 "$note"
 	else
@@ -1287,26 +1287,26 @@ s26() {
 	prepare_rules
 	set_sim false
 	local rules_before rules_after
-	rules_before=$(sql "SELECT COALESCE(target, 'allgemein') || '=' || COALESCE(period_value, '') || period_unit FROM oc_folder_retention_rules WHERE folder_id IS NULL ORDER BY id" | paste -sd' ')
+	rules_before=$(sql "SELECT COALESCE(target, 'general') || '=' || COALESCE(period_value, '') || period_unit FROM oc_folder_retention_rules WHERE folder_id IS NULL ORDER BY id" | paste -sd' ')
 	occ app:remove folder_retention >"$WORK/s26-remove.txt" 2>&1 \
-		|| { result FAIL S26 "occ app:remove fehlgeschlagen: $(tail -n2 "$WORK/s26-remove.txt" | paste -sd' ')"; return 0; }
+		|| { result FAIL S26 "occ app:remove failed: $(tail -n2 "$WORK/s26-remove.txt" | paste -sd' ')"; return 0; }
 	if docker exec "$C" test -d /var/www/html/custom_apps/folder_retention; then
-		result FAIL S26 "Vorbedingung: App-Ordner nach app:remove noch da"
+		result FAIL S26 "precondition: app folder still there after app:remove"
 		return 0
 	fi
 	install_app
 	local sim
-	sim=$(occ config:app:get folder_retention simulation_mode 2>/dev/null || echo fehlt)
-	rules_after=$(sql "SELECT COALESCE(target, 'allgemein') || '=' || COALESCE(period_value, '') || period_unit FROM oc_folder_retention_rules WHERE folder_id IS NULL ORDER BY id" | paste -sd' ')
+	sim=$(occ config:app:get folder_retention simulation_mode 2>/dev/null || echo missing)
+	rules_after=$(sql "SELECT COALESCE(target, 'general') || '=' || COALESCE(period_value, '') || period_unit FROM oc_folder_retention_rules WHERE folder_id IS NULL ORDER BY id" | paste -sd' ')
 	put uma s26-due.txt
 	age s26-due.txt 10
 	retention_run s26
-	local st where=weg
+	local st where=gone
 	st=$(last_status s26-due.txt)
-	in_files uma s26-due.txt && where=da
-	in_trash uma s26-due.txt && where=Papierkorb
-	local note="app:remove: $(grep -o 'uninstall steps executed' "$WORK/s26-remove.txt" || echo 'ohne Uninstall-Schritte'); nach Neuinstallation simulation_mode=$sim, Regeln $rules_before → $rules_after (bleiben laut INSTALL.md), fällige Datei: $where [${st:-kein Log}]"
-	if [[ ( "$sim" == 1 || "$sim" == true ) && $where == da && "$st" == simulation:would_delete* && "$rules_after" == "$rules_before" ]]; then
+	in_files uma s26-due.txt && where=present
+	in_trash uma s26-due.txt && where=trash
+	local note="app:remove: $(grep -o 'uninstall steps executed' "$WORK/s26-remove.txt" || echo 'without uninstall steps'); after reinstalling simulation_mode=$sim, rules $rules_before → $rules_after (kept as INSTALL.md says), due file: $where [${st:-no log}]"
+	if [[ ( "$sim" == 1 || "$sim" == true ) && $where == present && "$st" == simulation:would_delete* && "$rules_after" == "$rules_before" ]]; then
 		result PASS S26 "$note"
 	else
 		result FAIL S26 "$note"
@@ -1320,33 +1320,33 @@ s27() {
 	[[ -f "$doc" ]] || doc="$REPO/INSTALL.md"
 	local stmts
 	stmts=$(awk '/^## 9\. /{s=1} s && /^```sql/{b=1; next} b && /^```/{exit} b && NF' "$doc")
-	[[ -n "$stmts" ]] || { result FAIL S27 "Vorbedingung: kein SQL-Block in INSTALL.md §9"; return 0; }
+	[[ -n "$stmts" ]] || { result FAIL S27 "precondition: no SQL block in INSTALL.md §9"; return 0; }
 	side_nc
 	install_app
 	side_user ulla
 	prepare_rules
 	set_sim false
 	occ app:remove folder_retention >"$WORK/s27-remove.txt" 2>&1 \
-		|| { result FAIL S27 "occ app:remove fehlgeschlagen: $(tail -n2 "$WORK/s27-remove.txt" | paste -sd' ')"; return 0; }
+		|| { result FAIL S27 "occ app:remove failed: $(tail -n2 "$WORK/s27-remove.txt" | paste -sd' ')"; return 0; }
 	local line n=0
 	while IFS= read -r line; do
-		sql "${line%;}" || { result FAIL S27 "SQL aus INSTALL.md scheitert: $line"; return 0; }
+		sql "${line%;}" || { result FAIL S27 "SQL from INSTALL.md fails: $line"; return 0; }
 		n=$((n + 1))
 	done <<< "$stmts"
 	install_app
 	local tables sim rules dry rc=0
 	tables=$(sql "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'oc_folder_retention_%'")
-	sim=$(occ config:app:get folder_retention simulation_mode 2>/dev/null || echo fehlt)
+	sim=$(occ config:app:get folder_retention simulation_mode 2>/dev/null || echo missing)
 	put ulla s27-old.txt
 	age s27-old.txt 400
 	dry=$(occ folder_retention:run --dry-run 2>&1) || rc=$?
-	rules=$(sql "SELECT COALESCE(target, 'allgemein') || '=' || period_unit || COALESCE(period_value, '')
+	rules=$(sql "SELECT COALESCE(target, 'general') || '=' || period_unit || COALESCE(period_value, '')
 		FROM oc_folder_retention_rules WHERE folder_id IS NULL ORDER BY id" | paste -sd' ')
-	local note="$n Anweisungen aus INSTALL.md; danach Tabellen=$tables, simulation_mode=$sim, Regeln: ${rules:-keine}, Dry-Run rc=$rc$( [[ "$dry" == *s27-old* ]] && echo ', 400 Tage alte Datei fällig' )"
-	if [[ "$tables" == 5 && ( "$sim" == 1 || "$sim" == true ) && "$rules" =~ ^allgemein=never\ personal=never$ && $rc == 0 && "$dry" != *s27-old* ]]; then
+	local note="$n statements from INSTALL.md; afterwards tables=$tables, simulation_mode=$sim, rules: ${rules:-none}, dry run rc=$rc$( [[ "$dry" == *s27-old* ]] && echo ', 400-day-old file due' )"
+	if [[ "$tables" == 5 && ( "$sim" == 1 || "$sim" == true ) && "$rules" =~ ^general=never\ personal=never$ && $rc == 0 && "$dry" != *s27-old* ]]; then
 		result PASS S27 "$note"
 	else
-		result FAIL S27 "$note; Dry-Run: $(echo "$dry" | tail -n2 | paste -sd' ')"
+		result FAIL S27 "$note; dry run: $(echo "$dry" | tail -n2 | paste -sd' ')"
 	fi
 }
 
@@ -1356,7 +1356,7 @@ s27() {
 # run a personal file (same storage → rename, ID stays).
 s31() {
 	if [[ "$GF_OK" != 1 ]]; then
-		result SKIP S31 "groupfolders nicht verfügbar: $GF_WHY"
+		result SKIP S31 "groupfolders not available: $GF_WHY"
 		return 0
 	fi
 	local C="$C-enc"
@@ -1391,7 +1391,7 @@ s31() {
 	gf_trashed s31-team.txt || ok=0
 	in_trash ella s31-home.txt || ok=0
 	[[ "$team" == real:deleted\ * && "$home" == real:deleted\ * && -z "$blk" ]] || ok=0
-	local note="Verschlüsselung (Master-Key) im Team-Ordner: fileid $old → Papierkorb-ID ${trashid:-fehlt} (oc_group_folders_trash.file_id=${gfrow:-fehlt}); Log Team: ${team:-leer}; Log Home: ${home:-leer}; Sperren: ${blk:-keine}"
+	local note="encryption (master key) in the team folder: fileid $old → trash ID ${trashid:-missing} (oc_group_folders_trash.file_id=${gfrow:-missing}); log team: ${team:-empty}; log home: ${home:-empty}; locks: ${blk:-none}"
 	if [[ $ok == 1 ]]; then
 		result PASS S31 "$note"
 	else
@@ -1429,7 +1429,7 @@ s32() {
 	[[ "$days" == '"total":4,"counts"' ]] || ok=0
 	[[ "$unbounded" == 400 ]] || ok=0
 	sql "DELETE FROM oc_folder_retention_log WHERE rule_label = 's32'"
-	local note="Ordnerfilter: [${p1}] [${p2}] [${p3}], ohne Ordner: ${root:-fehlt}; Ordner: ${folders}; Tag: ${days:-leer}; ohne Zeitraum: HTTP ${unbounded}"
+	local note="folder filter: [${p1}] [${p2}] [${p3}], without folder: ${root:-missing}; folders: ${folders}; day: ${days:-empty}; without time range: HTTP ${unbounded}"
 	if [[ $ok == 1 ]]; then
 		result PASS S32 "$note"
 	else
@@ -1485,7 +1485,7 @@ s34() {
 	put zoe s34-file.txt
 	local storage
 	storage=$(sql "SELECT numeric_id FROM oc_storages WHERE id = ?" "home::zoe")
-	[[ -n "$storage" ]] || { result FAIL S34 "Vorbedingung: Home-Speicher von zoe fehlt"; return 0; }
+	[[ -n "$storage" ]] || { result FAIL S34 "precondition: home storage of zoe missing"; return 0; }
 	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status) VALUES (990201, ?, 'Persönlich · zoe/s34-file.txt', 's34', 1, 'upload', ?, 'simulation', 'would_delete')" "$storage" "$(now)"
 	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status) VALUES (990202, ?, 'other/s34-other.txt', 's34', 1, 'upload', ?, 'simulation', 'would_delete')" "$((storage + 100000))" "$(now)"
 	occ config:app:set folder_retention workspace_accounts --value='["zoe"]' >/dev/null
@@ -1691,6 +1691,6 @@ scenario S37 s37
 pass=$(grep -c '^PASS ' "$RES" || true)
 fail=$(grep -c '^FAIL ' "$RES" || true)
 skip=$(grep -c '^SKIP ' "$RES" || true)
-info "Laufzeit $(( $(now) - STARTED )) s, Image $IMAGE, App aus $APP_SRC"
+info "runtime $(( $(now) - STARTED )) s, image $IMAGE, app from $APP_SRC"
 echo "Harness $pass/$fail/$skip"
 [[ "$fail" == 0 ]]
