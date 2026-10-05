@@ -17,6 +17,10 @@
 //   php proc.php repeat <fileid>
 //       LogMapper::findRepeat/touch against the real database: an entry without a message,
 //       the same report again, a different one. Output: "same=<id|-> other=<id|-> moved=<0|1>"
+//   php proc.php migrate <version>
+//       runs one migration step of the app via MigrationService::executeStep, the way prod gets a
+//       schema change without a version bump (occ migrations:execute exists only with debug=true).
+//       Output: "done" or "already"
 declare(strict_types=1);
 
 require_once '/var/www/html/lib/base.php';
@@ -138,6 +142,15 @@ switch ($argv[1] ?? '') {
 		}
 		$moved = $same !== null && $mapper->findPage(1, 0, ['search' => 's35-repeat'])[0]->getDeletedAt() === 200;
 		echo 'same=' . ($same === $e->getId() ? 'id' : '-') . ' other=' . ($other ?? '-') . ' moved=' . ($moved ? 1 : 0) . "\n";
+		break;
+	case 'migrate':
+		$ms = new \OC\DB\MigrationService('folder_retention', \OCP\Server::get(\OC\DB\Connection::class));
+		if (in_array($argv[2], $ms->getMigratedVersions(), true)) {
+			echo "already\n";
+			break;
+		}
+		$ms->executeStep($argv[2]);
+		echo "done\n";
 		break;
 	default:
 		fwrite(STDERR, "unbekannter Modus\n");

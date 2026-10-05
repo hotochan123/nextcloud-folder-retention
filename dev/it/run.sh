@@ -1417,7 +1417,7 @@ s32() {
 	p2=$(paths 'S32%20100%25_%5Bx%5D%2Fsub')
 	p3=$(paths 'S32%201000x%5Bx%5D')
 	root=$(api 'log?folder=' | grep -o '"path":"s32-loose.txt"' || true)
-	folders=$(api "log/folders?search=S32&from=$((at - 3600))&to=$((at + 3600))" | grep -o '"folder":"[^"]*","total":[0-9]*' | tr '\n' ' ')
+	folders=$(api "log/folders?search=S32&from=$((at - 3600))&to=$((at + 3600))" | sed 's/,"root":"[^"]*"//g' | grep -o '"folder":"[^"]*","total":[0-9]*' | tr '\n' ' ' || true)
 	# without a time range the count would read the whole log – rejected
 	unbounded=$(docker exec "$C" curl -s -o /dev/null -w '%{http_code}' -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/log/folders?search=S32")
 	days=$(api 'log/days?search=s32' | grep -o '"total":[0-9]*,"counts"' | head -1)
@@ -1542,6 +1542,45 @@ s35() {
 	fi
 }
 
+# S36 area key in the log: two areas with the same name stay separate groups, a real run writes the
+# key, the CSV export streams with download headers, and the migration step for an existing
+# installation (occ migrations:execute, used on prod without occ upgrade) runs without error.
+s36() {
+	local at
+	at=$(( $(now) - 60 ))
+	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status, root_key) VALUES (990401, 1, 'S36 Archive/a.txt', 's36', 1, 'upload', ?, 'simulation', 'would_delete', '0000000001:000000000100')" "$at"
+	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status, root_key) VALUES (990402, 1, 'S36 Archive/b.txt', 's36', 1, 'upload', ?, 'simulation', 'would_delete', '0000000001:000000000200')" "$at"
+	sql "INSERT INTO oc_folder_retention_log (file_id, storage_id, path, rule_label, reference_date, reference_source, deleted_at, mode, status, root_key) VALUES (990403, 1, 'S36 Archive/c.txt', 's36', 1, 'upload', ?, 'simulation', 'would_delete', '0000000001:000000000200')" "$at"
+	api() { docker exec "$C" curl -sf -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/$1"; }
+	local groups files keyed headers body rows ok=1
+	groups=$(api "log/folders?search=s36&from=$((at - 3600))&to=$((at + 3600))" | grep -o '"folder":"S36 Archive","root":"[0-9:]*","total":[0-9]*' | sed 's/"folder":"S36 Archive",//' | tr '\n' ' ' || true)
+	files=$(api "log?search=s36&folder=S36%20Archive&root=0000000001:000000000200" | grep -o '"path":"[^"]*"' | tr '\n' ' ' || true)
+	keyed=$(sql "SELECT COUNT(*) FROM oc_folder_retention_log WHERE rule_label <> 's36' AND root_key IS NOT NULL")
+	headers=$(docker exec "$C" curl -sf -D - -o /tmp/s36.csv -u "admin:$PW" -H 'OCS-APIRequest: true' "http://localhost/index.php/apps/folder_retention/api/log/export?search=s36" | tr -d '\r' | grep -iE '^content-(type|disposition):' | paste -sd' ' || true)
+	body=$(docker exec "$C" head -c 3 /tmp/s36.csv | od -An -tx1 | tr -d ' \n')
+	rows=$(docker exec "$C" sh -c 'wc -l < /tmp/s36.csv' | tr -d ' ')
+	sql "DELETE FROM oc_folder_retention_log WHERE rule_label = 's36'"
+	# as on an existing installation: column and migration record gone, then the single step
+	local mig col
+	sql "DELETE FROM oc_migrations WHERE app = 'folder_retention' AND version = '1004Date20261005000000'"
+	sql "ALTER TABLE oc_folder_retention_log DROP COLUMN root_key"
+	mig=$(docker exec -u www-data "$C" php /tmp/fret-proc.php migrate 1004Date20261005000000 2>&1 | tail -n1 || true)
+	mig+="/$(docker exec -u www-data "$C" php /tmp/fret-proc.php migrate 1004Date20261005000000 2>&1 | tail -n1 || true)"
+	col=$(sql "SELECT COUNT(*) FROM pragma_table_info('oc_folder_retention_log') WHERE name = 'root_key'")
+	[[ "$groups" == *'"root":"0000000001:000000000100","total":1'* && "$groups" == *'"root":"0000000001:000000000200","total":2'* ]] || ok=0
+	[[ "$files" == *'b.txt'* && "$files" == *'c.txt'* && "$files" != *'a.txt'* ]] || ok=0
+	[[ "$keyed" -gt 0 ]] || ok=0
+	[[ "$headers" == *'text/csv'* && "$headers" == *'attachment; filename="'* ]] || ok=0
+	[[ "$body" == efbbbf && "$rows" == 4 ]] || ok=0
+	[[ "$mig" == done/already && "$col" == 1 ]] || ok=0
+	local note="groups: $groups| files of the second: $files| entries with key from real runs: $keyed; export: $headers, BOM $body, lines $rows; migration step: $mig, column back: $col"
+	if [[ $ok == 1 ]]; then
+		result PASS S36 "$note"
+	else
+		result FAIL S36 "$note"
+	fi
+}
+
 # ---------------------------------------------------------------- sequence
 
 setup
@@ -1581,6 +1620,7 @@ scenario S32 s32
 scenario S33 s33
 scenario S34 s34
 scenario S35 s35
+scenario S36 s36
 
 pass=$(grep -c '^PASS ' "$RES" || true)
 fail=$(grep -c '^FAIL ' "$RES" || true)

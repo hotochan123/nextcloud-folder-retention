@@ -19,8 +19,8 @@ use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
 use OCP\AppFramework\Http\Attribute\PasswordConfirmationRequired;
-use OCP\AppFramework\Http\DataDownloadResponse;
 use OCP\AppFramework\Http\JSONResponse;
+use OCP\AppFramework\Http\StreamTraversableResponse;
 use OCP\BackgroundJob\IJobList;
 use OCP\IL10N;
 use OCP\IRequest;
@@ -168,10 +168,10 @@ class ApiController extends Controller {
 	}
 
 	#[FrontpageRoute(verb: 'GET', url: '/api/log')]
-	public function log(int $limit = 50, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null, ?string $folder = null): JSONResponse {
+	public function log(int $limit = 50, int $offset = 0, ?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null, ?string $folder = null, ?string $root = null): JSONResponse {
 		$limit = max(1, min(500, $limit));
 		$offset = max(0, $offset);
-		$filter = $this->logFilter($mode, $status, $search, $from, $to, $folder);
+		$filter = $this->logFilter($mode, $status, $search, $from, $to, $folder, $root);
 		return new JSONResponse([
 			'entries' => $this->logMapper->findPage($limit, $offset, $filter),
 			'total' => $this->logMapper->count($filter),
@@ -210,16 +210,28 @@ class ApiController extends Controller {
 
 	/**
 	 * Log as CSV (semicolon, UTF-8 with BOM – opens correctly in Excel right away).
-	 * Same filters as /api/log except folder.
+	 * Same filters as /api/log except folder. Streamed: rows are read in chunks and sent in
+	 * blocks, so even a large log never sits in memory as a whole.
 	 */
 	#[FrontpageRoute(verb: 'GET', url: '/api/log/export')]
-	public function exportLog(?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): DataDownloadResponse {
+	public function exportLog(?string $mode = null, ?string $status = null, ?string $search = null, ?int $from = null, ?int $to = null): StreamTraversableResponse {
 		$tz = $this->settings->timezone();
-		$fmt = fn (?int $ts) => $ts ? (new \DateTimeImmutable('@' . $ts))->setTimezone($tz)->format('Y-m-d H:i:s') : '';
-		$out = fopen('php://temp', 'r+');
-		fwrite($out, "\xEF\xBB\xBF");
+		$name = $this->l->t('folder-retention-log') . '-' . (new \DateTimeImmutable('now', $tz))->format('Y-m-d') . '.csv';
+		return new StreamTraversableResponse($this->csvBlocks($this->logFilter($mode, $status, $search, $from, $to), $tz), Http::STATUS_OK, [
+			'Content-Type' => 'text/csv; charset=utf-8',
+			'Content-Disposition' => self::attachment($name),
+		]);
+	}
+
+	/**
+	 * CSV in blocks of up to 500 rows; the header line comes first.
+	 *
+	 * @param array<string, mixed> $filter
+	 * @return \Generator<string>
+	 */
+	private function csvBlocks(array $filter, \DateTimeZone $tz): \Generator {
 		$l = $this->l;
-		fputcsv($out, [$l->t('Time'), $l->t('Mode'), $l->t('Status'), $l->t('File'), $l->t('Rule'), $l->t('Rule ID'), $l->t('Reference date'), $l->t('Reference date from'), $l->t('Message'), $l->t('File ID')], ';', '"', '');
+		$fmt = fn (?int $ts) => $ts ? (new \DateTimeImmutable('@' . $ts))->setTimezone($tz)->format('Y-m-d H:i:s') : '';
 		$statusLabels = [
 			'deleted' => $l->t('deleted'),
 			'would_delete' => $l->t('would delete'),
@@ -230,35 +242,60 @@ class ApiController extends Controller {
 		];
 		// defuse cells that Excel would read as a formula (file names like "=HYPERLINK(…)") with '
 		$cell = fn ($v) => is_string($v) && $v !== '' && str_contains("=+-@\t\r", $v[0]) ? "'" . $v : $v;
-		foreach ($this->logMapper->iterate($this->logFilter($mode, $status, $search, $from, $to)) as $e) {
-			fputcsv($out, array_map($cell, [
-				$fmt($e->getDeletedAt()),
-				$e->getMode() === 'real' ? $l->t('real') : $l->t('Simulation'),
-				$statusLabels[$e->getStatus()] ?? $e->getStatus(),
-				$e->getPath(),
-				$e->getRuleLabel(),
-				$e->getRuleId(),
-				$fmt($e->getReferenceDate()),
-				$e->getReferenceSource(),
-				$e->getMessage(),
-				$e->getFileId(),
-			]), ';', '"', '');
+		$buffer = fopen('php://memory', 'r+');
+		$flush = static function () use ($buffer): string {
+			rewind($buffer);
+			$block = (string)stream_get_contents($buffer);
+			ftruncate($buffer, 0);
+			rewind($buffer);
+			return $block;
+		};
+		try {
+			fwrite($buffer, "\xEF\xBB\xBF");
+			fputcsv($buffer, [$l->t('Time'), $l->t('Mode'), $l->t('Status'), $l->t('File'), $l->t('Rule'), $l->t('Rule ID'), $l->t('Reference date'), $l->t('Reference date from'), $l->t('Message'), $l->t('File ID')], ';', '"', '');
+			$rows = 0;
+			foreach ($this->logMapper->iterate($filter) as $e) {
+				fputcsv($buffer, array_map($cell, [
+					$fmt($e->getDeletedAt()),
+					$e->getMode() === 'real' ? $l->t('real') : $l->t('Simulation'),
+					$statusLabels[$e->getStatus()] ?? $e->getStatus(),
+					$e->getPath(),
+					$e->getRuleLabel(),
+					$e->getRuleId(),
+					$fmt($e->getReferenceDate()),
+					$e->getReferenceSource(),
+					$e->getMessage(),
+					$e->getFileId(),
+				]), ';', '"', '');
+				if (++$rows % 500 === 0) {
+					yield $flush();
+				}
+			}
+			yield $flush();
+		} finally {
+			fclose($buffer);
 		}
-		rewind($out);
-		$csv = stream_get_contents($out);
-		fclose($out);
-		$name = $l->t('folder-retention-log') . '-' . (new \DateTimeImmutable('now', $tz))->format('Y-m-d') . '.csv';
-		return new DataDownloadResponse($csv, $name, 'text/csv; charset=utf-8');
+	}
+
+	/** Content-Disposition for a download: ASCII fallback plus the UTF-8 name (RFC 6266) */
+	private static function attachment(string $name): string {
+		$name = str_replace(['/', '\\', '"', "\r", "\n"], '-', $name);
+		$ascii = preg_replace('/[^\x20-\x7E]/', '_', $name) ?? 'log.csv';
+		return 'attachment; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($name);
 	}
 
 	/**
 	 * folder: null = all folders, '' = paths without a folder (query parameter "folder=")
+	 * root: area key of the folder group (/api/log/folders), '' = older entries without a key
 	 *
-	 * @return array{mode: ?string, status: ?string, search: ?string, from: ?int, to: ?int, folder?: string}
+	 * @return array{mode: ?string, status: ?string, search: ?string, from: ?int, to: ?int, folder?: string, root?: string}
 	 */
-	private function logFilter(?string $mode, ?string $status, ?string $search, ?int $from, ?int $to, ?string $folder = null): array {
+	private function logFilter(?string $mode, ?string $status, ?string $search, ?int $from, ?int $to, ?string $folder = null, ?string $root = null): array {
 		$search = trim((string)$search);
-		return ($folder === null ? [] : ['folder' => mb_substr($folder, 0, 4000)]) + [
+		// root only together with folder (a group of /api/log/folders); a malformed key is ignored
+		$root = $folder !== null && $root !== null && ($root === '' || preg_match('/^\d{10}:\d{12}$/', $root) === 1) ? $root : null;
+		return ($folder === null ? [] : ['folder' => mb_substr($folder, 0, 4000)])
+			+ ($root === null ? [] : ['root' => $root]) + [
 			'mode' => in_array($mode, ['real', 'simulation'], true) ? $mode : null,
 			'status' => in_array($status, LogSummary::CATEGORIES, true) ? $status : null,
 			'search' => $search === '' ? null : mb_substr($search, 0, 200),

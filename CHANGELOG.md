@@ -47,6 +47,13 @@ Preparation for the Nextcloud App Store.
   modification time: a client can upload new content and keep the old mtime.
 - The same error or skip reason for a file is no longer added to the log on
   every nightly run; the existing entry moves to the latest occurrence.
+- The CSV export is streamed in blocks instead of being built in memory, so a
+  large log no longer risks the PHP memory limit.
+- Log entries remember their area by a stable key (new column `root_key`):
+  two Team folders with the same name, or a work-space account whose display
+  name changes, no longer end up in one folder group of the log overview.
+  `/api/log/folders` returns `root` per group and `/api/log` takes `root`
+  together with `folder`. Entries written before keep grouping by path.
 - "Expand all" also opens the personal folders (their folder trees up to 50
   accounts), and opens at least the first level of a folder too large to load
   at once.

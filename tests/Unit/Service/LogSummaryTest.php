@@ -86,6 +86,20 @@ class LogSummaryTest extends TestCase {
 		$this->assertSame([['from' => 1, 'to' => 2]], $this->filters);
 	}
 
+	public function testSameNamedAreasStayApart(): void {
+		// two Team folders both mounted as "Archive", plus an older entry without a key
+		$this->rows = [
+			['root_key' => '0000000001:000000000100'] + $this->row('Archive/a.pdf', 'would_delete', '2026-10-04 02:00'),
+			['root_key' => '0000000001:000000000200'] + $this->row('Archive/b.pdf', 'would_delete', '2026-10-04 02:00'),
+			['root_key' => '0000000001:000000000200'] + $this->row('Archive/c.pdf', 'error', '2026-10-04 02:00'),
+			['root_key' => null] + $this->row('Archive/d.pdf', 'deleted', '2026-10-04 02:00'),
+		];
+		$folders = $this->summary()->folders(['from' => 1, 'to' => 2]);
+		$this->assertSame(['', '0000000001:000000000100', '0000000001:000000000200'], array_column($folders, 'root'));
+		$this->assertSame(['Archive', 'Archive', 'Archive'], array_column($folders, 'folder'));
+		$this->assertSame([1, 1, 2], array_column($folders, 'total'));
+	}
+
 	public function testFolderOfAndCategory(): void {
 		$this->assertSame('a/b', LogSummary::folderOf('a/b/c.txt'));
 		$this->assertSame('', LogSummary::folderOf('c.txt'));

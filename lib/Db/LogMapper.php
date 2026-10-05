@@ -14,8 +14,9 @@ use OCP\IDBConnection;
  * Filters (all optional): mode (real|simulation – API and CSV only, the UI does not filter by it), status (deleted|would_delete|skipped|error –
  * "error" includes permanent deletions),
  * search (part of the path), from/to (Unix timestamps, inclusive),
- * folder (exactly this parent folder of the path, without subfolders; '' = paths without a folder).
- * @psalm-type LogFilter = array{mode?: ?string, status?: ?string, search?: ?string, from?: ?int, to?: ?int, folder?: ?string}
+ * folder (exactly this parent folder of the path, without subfolders; '' = paths without a folder),
+ * root (area key RetentionRoot::blockKey(); '' = older entries without a key).
+ * @psalm-type LogFilter = array{mode?: ?string, status?: ?string, search?: ?string, from?: ?int, to?: ?int, folder?: ?string, root?: ?string}
  */
 class LogMapper extends QBMapper {
 	public function __construct(IDBConnection $db) {
@@ -63,11 +64,11 @@ class LogMapper extends QBMapper {
 	 * Only the columns for the per-day and per-folder overview, in chunks, newest first.
 	 *
 	 * @param LogFilter $filter
-	 * @return \Generator<array{path: string, status: string, deleted_at: int}>
+	 * @return \Generator<array{path: string, status: string, deleted_at: int, root_key: ?string}>
 	 */
 	public function iterateSummary(array $filter = [], int $chunk = 5000): \Generator {
-		foreach ($this->chunks(['id', 'path', 'status', 'deleted_at'], $filter, $chunk) as $row) {
-			yield ['path' => (string)$row['path'], 'status' => (string)$row['status'], 'deleted_at' => (int)$row['deleted_at']];
+		foreach ($this->chunks(['id', 'path', 'status', 'deleted_at', 'root_key'], $filter, $chunk) as $row) {
+			yield ['path' => (string)$row['path'], 'status' => (string)$row['status'], 'deleted_at' => (int)$row['deleted_at'], 'root_key' => $row['root_key'] === null ? null : (string)$row['root_key']];
 		}
 	}
 
@@ -133,6 +134,11 @@ class LogMapper extends QBMapper {
 		// so a folder with "%" or "_" in its name would otherwise also show its subfolders.
 		// Known edge case: MySQL/MariaDB compare case-insensitively with a *_ci collation,
 		// so "Docs" there also shows the files from "docs", which the overview counts separately.
+		if (isset($filter['root'])) {
+			$qb->andWhere($filter['root'] === ''
+				? $qb->expr()->isNull('root_key')
+				: $qb->expr()->eq('root_key', $qb->createNamedParameter($filter['root'])));
+		}
 		if (isset($filter['folder'])) {
 			$prefix = $filter['folder'] === '' ? '' : $this->db->escapeLikeParameter($filter['folder']) . '/';
 			if ($prefix !== '') {

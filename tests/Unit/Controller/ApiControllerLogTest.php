@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FolderRetention\Tests\Unit\Controller;
 
 use OCA\FolderRetention\Controller\ApiController;
+use OCA\FolderRetention\Db\LogEntry;
 use OCA\FolderRetention\Db\LogMapper;
 use OCA\FolderRetention\Service\LogSummary;
 use OCA\FolderRetention\Service\RetentionRunner;
@@ -15,6 +16,7 @@ use OCA\FolderRetention\Service\TagService;
 use OCA\FolderRetention\Service\TreeService;
 use OCA\FolderRetention\Tests\Unit\FakeL10N;
 use OCP\AppFramework\Http;
+use OCP\AppFramework\Http\IOutput;
 use OCP\BackgroundJob\IJobList;
 use OCP\IRequest;
 use OCP\IUserManager;
@@ -32,6 +34,8 @@ class ApiControllerLogTest extends TestCase {
 	private function controller(): ApiController {
 		$this->mapper = $this->createMock(LogMapper::class);
 		$this->summary = $this->createMock(LogSummary::class);
+		$settings = $this->createMock(Settings::class);
+		$settings->method('timezone')->willReturn(new \DateTimeZone('UTC'));
 		return new ApiController(
 			$this->createMock(IRequest::class),
 			$this->createMock(RuleService::class),
@@ -40,7 +44,7 @@ class ApiControllerLogTest extends TestCase {
 			$this->createMock(RetentionRunner::class),
 			$this->mapper,
 			$this->summary,
-			$this->createMock(Settings::class),
+			$settings,
 			$this->createMock(IUserSession::class),
 			$this->createMock(TagService::class),
 			$this->createMock(IJobList::class),
@@ -66,6 +70,71 @@ class ApiControllerLogTest extends TestCase {
 		$this->assertSame('', $seen[1][2]['folder'], 'folder= means paths without a folder');
 		$this->assertSame(['mode' => null, 'status' => null, 'search' => null, 'from' => null, 'to' => null], array_diff_key($seen[2][2], ['folder' => 1]), 'unknown values are dropped, not passed through');
 		$this->assertSame(4000, mb_strlen($seen[2][2]['folder']));
+	}
+
+	public function testRootOnlyWithFolderAndWellFormed(): void {
+		$c = $this->controller();
+		$seen = [];
+		$this->mapper->method('findPage')->willReturnCallback(function (int $limit, int $offset, array $filter) use (&$seen) {
+			$seen[] = $filter;
+			return [];
+		});
+		$c->log(50, 0, null, null, null, null, null, 'Archive', '0000000001:000000000100');
+		$c->log(50, 0, null, null, null, null, null, 'Archive', '');
+		$c->log(50, 0, null, null, null, null, null, 'Archive', "1' OR 1=1");
+		$c->log(50, 0, null, null, null, null, null, null, '0000000001:000000000100');
+
+		$this->assertSame('0000000001:000000000100', $seen[0]['root']);
+		$this->assertSame('', $seen[1]['root'], 'root= means older entries without a key');
+		$this->assertArrayNotHasKey('root', $seen[2], 'malformed key ignored');
+		$this->assertArrayNotHasKey('root', $seen[3], 'root without folder ignored');
+	}
+
+	public function testExportStreamsCsvInBlocks(): void {
+		$c = $this->controller();
+		$entries = [];
+		for ($i = 1; $i <= 501; $i++) {
+			$e = new LogEntry();
+			$e->setDeletedAt(1_800_000_000);
+			$e->setMode('real');
+			$e->setStatus('deleted');
+			$e->setPath($i === 1 ? '=HYPERLINK("x")' : "Team/f$i.txt");
+			$e->setRuleLabel('1 Tag');
+			$e->setReferenceDate(1_700_000_000);
+			$e->setReferenceSource('upload');
+			$e->setFileId($i);
+			$entries[] = $e;
+		}
+		$this->mapper->method('iterate')->willReturnCallback(function () use ($entries) {
+			yield from $entries;
+		});
+
+		$response = $c->exportLog();
+		$output = new class implements IOutput {
+			/** @var list<string> */
+			public array $blocks = [];
+			public function setOutput($out) {
+				$this->blocks[] = $out;
+			}
+			public function setReadfile($path) {
+			}
+			public function setHeader($header) {
+			}
+			public function getHttpResponseCode() {
+				return 200;
+			}
+			public function setHttpResponseCode($code) {
+			}
+			public function setCookie($name, $value, $expire, $path, $domain, $secure, $httpOnly, $sameSite = 'Lax') {
+			}
+		};
+		$response->callback($output);
+
+		$this->assertCount(2, $output->blocks, 'one block per 500 rows, then the rest');
+		$csv = implode('', $output->blocks);
+		$this->assertStringStartsWith("\xEF\xBB\xBF", $csv);
+		$this->assertSame(502, substr_count($csv, "\n"), 'header + 501 rows');
+		$this->assertStringContainsString("\"'=HYPERLINK(\"\"x\"\")\"", $csv, 'formula defused');
 	}
 
 	public function testDaysBoundsLimit(): void {

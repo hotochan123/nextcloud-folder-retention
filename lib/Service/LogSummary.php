@@ -60,17 +60,22 @@ class LogSummary {
 
 	/**
 	 * @param LogFilter $filter usually with from/to of one day
-	 * @return list<array{folder: string, total: int, counts: Counts}> sorted by folder path
+	 * One group per area key and parent folder: two areas with the same name (or a renamed one)
+	 * stay apart. root = RetentionRoot::blockKey(), '' for older entries without a key.
+	 *
+	 * @return list<array{folder: string, root: string, total: int, counts: Counts}> sorted by folder path
 	 */
 	public function folders(array $filter): array {
 		$folders = [];
 		foreach ($this->mapper->iterateSummary($filter) as $row) {
 			$folder = self::folderOf($row['path']);
-			$folders[$folder] ??= ['folder' => $folder, 'total' => 0, 'counts' => self::emptyCounts()];
-			$folders[$folder]['total']++;
-			$folders[$folder]['counts'][self::category($row['status'])]++;
+			$root = $row['root_key'] ?? '';
+			$key = $root . "\n" . $folder;
+			$folders[$key] ??= ['folder' => $folder, 'root' => $root, 'total' => 0, 'counts' => self::emptyCounts()];
+			$folders[$key]['total']++;
+			$folders[$key]['counts'][self::category($row['status'])]++;
 		}
-		uksort($folders, fn ($a, $b) => strnatcasecmp((string)$a, (string)$b));
+		usort($folders, fn (array $a, array $b) => strnatcasecmp($a['folder'], $b['folder']) ?: strcmp($a['root'], $b['root']));
 		return array_values($folders);
 	}
 

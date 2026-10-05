@@ -794,6 +794,7 @@ class RetentionRunner {
 		$entry->setFileId($d->file->fileId);
 		$entry->setStorageId($d->file->storageId);
 		$entry->setPath(mb_substr($root->displayPath($d->file->path), 0, 4000));
+		$entry->setRootKey($root->blockKey());
 		$entry->setRuleId($rule->id);
 		$entry->setRuleFolderId($rule->folderId);
 		$entry->setRuleLabel($ruleLabel);

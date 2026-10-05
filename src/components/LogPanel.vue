@@ -103,7 +103,7 @@
 						{{ dayState[day.date].error }}
 					</NcNoteCard>
 					<details v-for="f in dayState[day.date]?.folders ?? []"
-						:key="f.folder"
+						:key="`${f.root}\n${f.folder}`"
 						class="fr-folder"
 						:open="folderState[key(day, f)]?.open"
 						@toggle="onFolderToggle(day, f, $event)">
@@ -186,7 +186,8 @@ function dayParams(day) {
 	return { ...p, from: Math.max(p.from ?? 0, day.from), to: Math.min(p.to ?? day.to, day.to) }
 }
 
-const key = (day, f) => `${day.date}\n${f.folder}`
+/** A folder group is area key + folder: two areas with the same name stay apart */
+const key = (day, f) => `${day.date}\n${f.root}\n${f.folder}`
 
 async function reload() {
 	const gen = ++generation
@@ -292,7 +293,7 @@ async function loadFiles(day, f, st) {
 	st.loading = true
 	st.error = null
 	try {
-		const data = await fetchLog({ ...dayParams(day), folder: f.folder, limit: FILE_PAGE, offset: st.entries.length })
+		const data = await fetchLog({ ...dayParams(day), folder: f.folder, root: f.root, limit: FILE_PAGE, offset: st.entries.length })
 		if (gen !== generation) return
 		st.entries = [...st.entries, ...data.entries]
 		st.total = data.total

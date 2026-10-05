@@ -33,6 +33,8 @@ use OCP\DB\Types;
  * @method void setStatus(string $status)
  * @method ?string getMessage()
  * @method void setMessage(?string $message)
+ * @method ?string getRootKey()
+ * @method void setRootKey(?string $key)
  */
 class LogEntry extends Entity implements JsonSerializable {
 	public const MODE_REAL = 'real';
@@ -63,6 +65,8 @@ class LogEntry extends Entity implements JsonSerializable {
 	protected $mode;
 	protected $status;
 	protected $message;
+	/** RetentionRoot::blockKey() of the area; null = older entry without a key */
+	protected $rootKey;
 
 	public function __construct() {
 		$this->addType('fileId', Types::BIGINT);
@@ -77,6 +81,7 @@ class LogEntry extends Entity implements JsonSerializable {
 		$this->addType('mode', Types::STRING);
 		$this->addType('status', Types::STRING);
 		$this->addType('message', Types::STRING);
+		$this->addType('rootKey', Types::STRING);
 	}
 
 	public function jsonSerialize(): array {
@@ -93,6 +98,7 @@ class LogEntry extends Entity implements JsonSerializable {
 			'mode' => $this->mode,
 			'status' => $this->status,
 			'message' => $this->message,
+			'rootKey' => $this->rootKey,
 		];
 	}
 }
