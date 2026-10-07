@@ -17,10 +17,10 @@ Planned public repository: `hotochan123/nextcloud-folder-retention`.
 | English source + German translation | `l10n/de.json` / `l10n/de.js` via `npm run l10n`, checked by `npm run l10n:check` |
 | Release archive | `scripts/package.sh` (reproducible, without sources and source maps) |
 | CI | `.github/workflows/ci.yml` — check it is green before tagging |
-| Public repository | **open** — create `hotochan123/nextcloud-folder-retention`, push, make public, enable Issues and private vulnerability reporting |
-| Certificate | **open** — see below |
-| App ID registered | **open** |
-| Screenshots | **open** — none yet; add PNGs under `screenshots/` and `<screenshot>` tags in `info.xml` (after `<repository>`), URLs via `raw.githubusercontent.com` |
+| Public repository | done — `hotochan123/nextcloud-folder-retention` is public, Issues and private vulnerability reporting enabled |
+| Certificate | done — issued 2026-10-07 (nextcloud/app-certificate-requests#1307), valid until 2037-01-12 |
+| App ID registered | done |
+| Screenshots | done — six PNGs under `screenshots/` (`dev/shots/run.sh`), referenced in `info.xml` via `raw.githubusercontent.com` |
 | Public e-mail address | none, as for Pulse — commits use the GitHub no-reply address, contact through the issue tracker |
 
 ## Once

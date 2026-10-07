@@ -7,7 +7,7 @@ All notable changes to Folder Retention are documented here. The format follows
 Release notes on the Nextcloud App Store are taken from the topmost sections of
 this file, so every published version needs an entry here.
 
-## [Unreleased]
+## [0.9.0] - 2026-10-07
 
 Preparation for the Nextcloud App Store.
 
