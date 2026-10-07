@@ -54,8 +54,9 @@ The full administrator guide — installation, update, downgrade, removal — is
   grouped by day and folder, with the number of affected files, filters and
   CSV export.
 - **Optional system tags** such as "Retention: 2 weeks" on files and folders,
-  so users can see the period in the file list. They are purely informative
-  and do not control anything.
+  so users can see the period in the file list — in one language of your
+  choice or language-neutral ("⌛ 2 w"). They are purely informative and do
+  not control anything.
 
 **How it differs from "Retention" (files_retention).** Nextcloud's own
 Retention app deletes files by collaborative tags and Flow rules. Folder

@@ -149,7 +149,7 @@ class RetentionRunner {
 			$this->settings->setCycleDeleted(0);
 			$this->settings->setLastCycleCompleted($now);
 			if ($withTags) {
-				$this->sweepTags($stats);
+				$this->sweepTags($stats, $ruleSet);
 			}
 			$stats->completed = true;
 			$this->logger->info('folder_retention: cycle completed – ' . $stats->summary($this->language->english()));
@@ -205,7 +205,7 @@ class RetentionRunner {
 				$this->scanRoot($root, $root->rootPath, 0, $ruleSet, null, $handler, $stats, $withTags, !$dryRun);
 			}
 			if ($withTags) {
-				$this->sweepTags($stats);
+				$this->sweepTags($stats, $ruleSet);
 			}
 			$stats->completed = true;
 			return $stats;
@@ -319,7 +319,7 @@ class RetentionRunner {
 			foreach ($this->roots->getRoots() as $root) {
 				$this->scanRoot($root, $root->rootPath, 0, $ruleSet, null, $noop, $stats, true);
 			}
-			$this->sweepTags($stats);
+			$this->sweepTags($stats, $ruleSet);
 		} else {
 			$located = $this->roots->locate($folderId);
 			$entry = $this->fileCache->getEntry($folderId);
@@ -377,15 +377,25 @@ class RetentionRunner {
 		$desired = [];
 	}
 
-	private function sweepTags(RunStats $stats): void {
+	private function sweepTags(RunStats $stats, RuleSet $ruleSet): void {
 		if ($this->tagsFailed) {
 			return;
 		}
 		try {
 			$stats->tagsRemoved += $this->tags->sweepOrphans();
+			$this->tags->pruneUnused($this->currentTagLabels($ruleSet));
 		} catch (\Throwable $e) {
 			$this->logger->error('folder_retention: cleaning up orphaned tags failed', ['exception' => $e]);
 		}
+	}
+
+	/** @return list<string> names of the tags the rules produce – these tags are kept */
+	private function currentTagLabels(RuleSet $ruleSet): array {
+		$rules = [$ruleSet->default, ...array_values($ruleSet->byFolderId)];
+		if ($ruleSet->personal !== null) {
+			$rules[] = $ruleSet->personal;
+		}
+		return array_values(array_unique(array_map(fn ($rule) => $this->tags->labelFor($rule->period), $rules)));
 	}
 
 	/**

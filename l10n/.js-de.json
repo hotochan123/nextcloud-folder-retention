@@ -286,6 +286,9 @@
 		"Next 365 days": "Nächste 365 Tage",
 		"Showing the {count} earliest.": "Angezeigt werden die {count} frühesten.",
 		"Already due – next run": "Bereits fällig – nächster Lauf",
-		"Nothing is due in this time span.": "In diesem Zeitraum wird nichts fällig."
+		"Nothing is due in this time span.": "In diesem Zeitraum wird nichts fällig.",
+		"Language of tags and log entries": "Sprache von Tags und Protokoll",
+		"A system tag has one name for all accounts, whatever language they use. Choose the main language of your instance – or “Neutral” if your accounts use different languages: tags then read “⌛ 2 w” or “⌛ ∞”, new log entries are written in English. After a change, the tags are renamed within a few minutes; earlier log entries keep their language.": "Ein System-Tag hat für alle Konten denselben Namen, egal welche Sprache sie nutzen. Wählen Sie die Hauptsprache Ihrer Instanz – oder „Neutral“, wenn Ihre Konten verschiedene Sprachen nutzen: Tags heißen dann „⌛ 2 w“ oder „⌛ ∞“, neue Protokolleinträge werden auf Englisch geschrieben. Nach einer Änderung werden die Tags innerhalb weniger Minuten umbenannt; frühere Protokolleinträge behalten ihre Sprache.",
+		"Neutral (⌛ 2 w)": "Neutral (⌛ 2 w)"
 	}
 }

@@ -11,6 +11,8 @@ use OCP\DB\Exception as DbException;
 use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\IAppConfig;
 use OCP\IDBConnection;
+use OCP\SystemTag\ISystemTagManager;
+use OCP\SystemTag\TagNotFoundException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -38,20 +40,27 @@ class TagService {
 
 	/** @var array<string, int>|null tag name → ID */
 	private ?array $registry = null;
+	/** @var array<int, true> tag IDs handed out in this process – never pruned by it */
+	private array $used = [];
 
 	public function __construct(
 		private IDBConnection $db,
 		private IAppConfig $appConfig,
 		private LoggerInterface $logger,
 		private ContentLanguage $language,
+		private ISystemTagManager $tagManager,
 	) {
 	}
 
 	/**
 	 * Tag name, always in the fixed instance language (ContentLanguage): system tags are
 	 * instance-wide and matched by name. German: „Aufbewahrung: 2 Wochen“, „Aufbewahrung: unbegrenzt“.
+	 * Neutral (ContentLanguage::NEUTRAL): „⌛ 2 w“, „⌛ ∞“ – the same for every language.
 	 */
 	public function labelFor(Period $period): string {
+		if ($this->language->neutralTags()) {
+			return '⌛ ' . $period->neutralLabel();
+		}
 		if (!$this->language->reliable()) {
 			// a tag in another language would be a new tag – callers pause tag sync instead
 			throw new \RuntimeException('folder_retention: content language unavailable, not creating tags');
@@ -65,11 +74,12 @@ class TagService {
 		$label = $this->labelFor($period);
 		$registry = $this->registry();
 		if (isset($registry[$label])) {
-			return $registry[$label];
+			return $this->used[$registry[$label]] = $registry[$label];
 		}
 		$id = $this->createTag($label, $period->isNever() ? self::COLOR_KEEP : self::COLOR_DELETE);
 		$this->registry[$label] = $id;
 		$this->saveRegistry();
+		$this->used[$id] = true;
 		return $id;
 	}
 
@@ -231,6 +241,44 @@ class TagService {
 				$removed += $qb->executeStatement();
 			}
 		}
+	}
+
+	/**
+	 * Deletes the app's own tags that no file carries anymore and whose name is not current –
+	 * after a language switch or when no rule uses a period anymore. Called after a complete
+	 * sync. Tags with the name of a current rule stay (no churn of tag IDs, e.g. in Flow rules),
+	 * as do tags handed out in this process. Foreign tags are never touched.
+	 *
+	 * @param list<string> $keepLabels names of the tags the current rules produce
+	 * @return int number of deleted tags
+	 */
+	public function pruneUnused(array $keepLabels): int {
+		$candidates = [];
+		foreach ($this->registry() as $name => $id) {
+			if (!in_array($name, $keepLabels, true) && !isset($this->used[$id])) {
+				$candidates[] = $id;
+			}
+		}
+		if ($candidates === []) {
+			return 0;
+		}
+		$qb = $this->db->getQueryBuilder();
+		$qb->selectDistinct('systemtagid')->from(self::MAP_TABLE)
+			->where($qb->expr()->in('systemtagid', $qb->createNamedParameter($candidates, IQueryBuilder::PARAM_INT_ARRAY)));
+		$mapped = array_map('intval', $qb->executeQuery()->fetchAll(\PDO::FETCH_COLUMN));
+		$unused = array_values(array_diff($candidates, $mapped));
+		if ($unused === []) {
+			return 0;
+		}
+		try {
+			// via the manager: also removes group restrictions and notifies listeners
+			$this->tagManager->deleteTags(array_map('strval', $unused));
+		} catch (TagNotFoundException) {
+			// deleted in the meantime – the registry forgets it below either way
+		}
+		$this->registry = array_filter($this->registry ?? [], fn (int $id) => !in_array($id, $unused, true));
+		$this->saveRegistry();
+		return count($unused);
 	}
 
 	/** @return array<string, int> tag name → ID, only tags that still exist */

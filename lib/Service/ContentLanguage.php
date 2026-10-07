@@ -24,11 +24,18 @@ use Throwable;
  * - existing install from the German-only era (tags „Aufbewahrung: …“ exist, rules exist, or
  *   the installed version predates translations) → "de", so names stay byte-identical;
  * - fresh install → system default_language if the app ships it ("de_DE" → "de"), else "en".
- * An admin may change it deliberately: occ config:app:set folder_retention tag_language --value=en
- * (new tags are then created, the old ones are removed from files by the next run).
+ * An admin may change it deliberately – in the settings (choose()) or via
+ * occ config:app:set folder_retention tag_language --value=en
+ * (new tags are then created, the old ones are removed from files and deleted by the next tag sync).
+ *
+ * `tag_format` = "neutral" makes tag names language-free („⌛ 2 w“) for instances whose accounts
+ * use different languages – a system tag has exactly one name for everyone. Texts then are English.
  */
 class ContentLanguage {
 	public const CONFIG_KEY = 'tag_language';
+	public const FORMAT_KEY = 'tag_format';
+	/** Settings choice and tag_format value: tags without words, stored texts in English */
+	public const NEUTRAL = 'neutral';
 	/** Tag prefix of all versions before translations existed */
 	public const LEGACY_TAG_PREFIX = 'Aufbewahrung: ';
 	/** First version with translatable texts – anything installed before is German-era */
@@ -90,6 +97,56 @@ class ContentLanguage {
 		$this->appConfig->setValueString(Application::APP_ID, self::CONFIG_KEY, $lang);
 		$this->l10n = null;
 		return $this->code = $lang;
+	}
+
+	/** Tag names without words („⌛ 2 w“) instead of „Retention: 2 weeks“ */
+	public function neutralTags(): bool {
+		return $this->appConfig->getValueString(Application::APP_ID, self::FORMAT_KEY, '') === self::NEUTRAL;
+	}
+
+	/** The admin's choice in the settings: a language code, or NEUTRAL */
+	public function choice(): string {
+		return $this->neutralTags() ? self::NEUTRAL : $this->code();
+	}
+
+	/**
+	 * What the settings offer: English, every translation the app ships, and NEUTRAL.
+	 *
+	 * @return list<string>
+	 */
+	public function choices(): array {
+		$codes = ['en'];
+		foreach (glob(dirname(__DIR__, 2) . '/l10n/*.json') ?: [] as $file) {
+			$code = basename($file, '.json');
+			if (preg_match('/^[a-z]{2,3}(_[A-Z]{2,4})?$/', $code) === 1 && $this->load($code) !== null) {
+				$codes[] = $code;
+			}
+		}
+		sort($codes);
+		return [...array_values(array_unique($codes)), self::NEUTRAL];
+	}
+
+	/**
+	 * Set the admin's choice (see choices()). Callers then sync all tags: the next sync moves
+	 * every file to the tag with the new name and deletes the old tags.
+	 *
+	 * @throws \InvalidArgumentException for anything not offered by choices()
+	 */
+	public function choose(string $choice): void {
+		if (!in_array($choice, $this->choices(), true)) {
+			throw new \InvalidArgumentException('unknown tag language "' . $choice . '"');
+		}
+		if ($choice === self::NEUTRAL) {
+			$this->appConfig->setValueString(Application::APP_ID, self::FORMAT_KEY, self::NEUTRAL);
+			$code = 'en';
+		} else {
+			$this->appConfig->deleteKey(Application::APP_ID, self::FORMAT_KEY);
+			$code = $choice;
+		}
+		$this->appConfig->setValueString(Application::APP_ID, self::CONFIG_KEY, $code);
+		$this->code = null;
+		$this->l10n = null;
+		$this->problem = null;
 	}
 
 	/** Translator for stored texts – fixed language, immune to forceLanguage, never throws */

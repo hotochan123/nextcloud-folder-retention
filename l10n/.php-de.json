@@ -148,7 +148,8 @@
         "Invalid deletion limit": "Ungültige Löschgrenze",
         "Deletion halted: limit of %d deletions per run reached – resume it in the settings": "Löschen angehalten: Grenze von %d Löschungen pro Lauf erreicht – in den Einstellungen fortsetzen",
         "would delete (superseded)": "würde löschen (überholt)",
-        "Superseded": "Überholt"
+        "Superseded": "Überholt",
+        "Invalid tag language": "Ungültige Sprache für Tags"
     },
     "pluralForm": "nplurals=2; plural=(n != 1);"
 }

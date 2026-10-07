@@ -1646,6 +1646,54 @@ s37() {
 	fi
 }
 
+# S38 language of the tags, chosen in the settings: German, neutral ("⌛ 1 d"), English. Each switch
+# queues a full tag sync; after it every file carries the tag with the new name and the app's
+# old tags are deleted – a foreign tag stays. An unknown language is rejected.
+s38() {
+	api_put() {
+		docker exec "$C" curl -s -o /tmp/s38-put.json -w '%{http_code}' -u "admin:$PW" -H 'OCS-APIRequest: true' \
+			-H 'Content-Type: application/json' -X PUT -d "$1" http://localhost/index.php/apps/folder_retention/api/settings
+	}
+	tag_of() { sql "SELECT t.name FROM oc_systemtag t JOIN oc_systemtag_object_mapping m ON m.systemtagid = t.id WHERE m.objecttype = 'files' AND m.objectid = ?" "$1" | paste -sd'|' || true; }
+	names() { sql "SELECT name FROM oc_systemtag ORDER BY name" | paste -sd'|' || true; }
+	queued() { sql "SELECT COUNT(*) FROM oc_jobs WHERE class LIKE '%TagSyncJob' AND argument = '{\"folderId\":null}'"; }
+	switch() {
+		local code
+		sql "DELETE FROM oc_jobs WHERE class LIKE '%TagSyncJob'"
+		code=$(api_put "{\"tagLanguage\":\"$1\"}")
+		echo "$code/$(grep -o '"tagLanguage":"[a-z]*"' <(docker exec "$C" cat /tmp/s38-put.json) | cut -d'"' -f4)/q$(queued)"
+		occ folder_retention:tags >/dev/null 2>&1 || true
+	}
+	local id h0 hde hneu hen hbad tde tneu ten nde nneu nen
+	set_default_rules day 1
+	put alice s38.txt
+	id=$(fid s38.txt)
+	# via the API like an admin: occ would leave the web process with a cached "tags off"
+	api_put '{"tags":true}' >/dev/null
+	occ tag:add "S38 foreign" public >/dev/null
+	h0=$(switch en)
+	hde=$(switch de)
+	tde=$(tag_of "$id"); nde=$(names)
+	hneu=$(switch neutral)
+	tneu=$(tag_of "$id"); nneu=$(names)
+	hen=$(switch en)
+	ten=$(tag_of "$id"); nen=$(names)
+	hbad=$(api_put '{"tagLanguage":"xx"}')
+	occ config:app:set folder_retention tags_enabled --value=0 --type=boolean >/dev/null
+	local ok=1
+	[[ "$hde" == 200/de/q1 && "$hneu" == 200/neutral/q1 && "$hen" == 200/en/q1 && "$hbad" == 400 ]] || ok=0
+	[[ "$tde" == "Aufbewahrung: "* && "$tde" != *'|'* && "$nde" != *'Retention: '* ]] || ok=0
+	[[ "$tneu" == "⌛ "* && "$tneu" != *'|'* && "$nneu" != *'Aufbewahrung: '* && "$nneu" != *'Retention: '* ]] || ok=0
+	[[ "$ten" == "Retention: "* && "$ten" != *'|'* && "$nen" != *'⌛'* && "$nen" != *'Aufbewahrung: '* ]] || ok=0
+	[[ "$nde" == *'S38 foreign'* && "$nneu" == *'S38 foreign'* && "$nen" == *'S38 foreign'* ]] || ok=0
+	local note="start: $h0; de: $hde → file [$tde], tags [$nde]; neutral: $hneu → [$tneu], tags [$nneu]; en: $hen → [$ten], tags [$nen]; unknown language: HTTP $hbad"
+	if [[ $ok == 1 ]]; then
+		result PASS S38 "$note"
+	else
+		result FAIL S38 "$note"
+	fi
+}
+
 # ---------------------------------------------------------------- sequence
 
 setup
@@ -1687,6 +1735,7 @@ scenario S34 s34
 scenario S35 s35
 scenario S36 s36
 scenario S37 s37
+scenario S38 s38
 
 pass=$(grep -c '^PASS ' "$RES" || true)
 fail=$(grep -c '^FAIL ' "$RES" || true)

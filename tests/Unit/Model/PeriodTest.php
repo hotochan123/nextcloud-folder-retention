@@ -73,6 +73,14 @@ class PeriodTest extends TestCase {
 		$this->assertSame('Nie löschen', Period::never()->label($de));
 	}
 
+	/** Neutral tags: the same for every language */
+	public function testNeutralLabels(): void {
+		$this->assertSame('1 d', Period::of(1, PeriodUnit::Day)->neutralLabel());
+		$this->assertSame('2 w', Period::of(2, PeriodUnit::Week)->neutralLabel());
+		$this->assertSame('6 m', Period::of(6, PeriodUnit::Month)->neutralLabel());
+		$this->assertSame('∞', Period::never()->neutralLabel());
+	}
+
 	public function testEnglishLabels(): void {
 		$en = FakeL10N::en();
 		$this->assertSame('1 month', Period::of(1, PeriodUnit::Month)->label($en));

@@ -66,6 +66,21 @@ final class Period {
 		return $start->modify('+' . $days . ' days')->getTimestamp();
 	}
 
+	/**
+	 * Language-neutral short form for tags on instances with mixed languages: "7 d", "2 w", "6 m",
+	 * "∞" for never. No translation – the same for every account.
+	 */
+	public function neutralLabel(): string {
+		if ($this->isNever()) {
+			return '∞';
+		}
+		return (int)$this->value . ' ' . match ($this->unit) {
+			PeriodUnit::Day => 'd',
+			PeriodUnit::Week => 'w',
+			PeriodUnit::Month => 'm',
+		};
+	}
+
 	/** Short form for badge/log/tag, e.g. "1 month", "2 weeks", "Never delete" (German: „1 Monat“, „2 Wochen“, „Nie löschen“) */
 	public function label(IL10N $l): string {
 		if ($this->isNever()) {

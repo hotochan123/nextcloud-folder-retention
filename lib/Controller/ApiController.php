@@ -7,6 +7,7 @@ namespace OCA\FolderRetention\Controller;
 use OCA\FolderRetention\AppInfo\Application;
 use OCA\FolderRetention\BackgroundJob\TagSyncJob;
 use OCA\FolderRetention\Db\LogMapper;
+use OCA\FolderRetention\Service\ContentLanguage;
 use OCA\FolderRetention\Service\LogSummary;
 use OCA\FolderRetention\Service\RetentionRunner;
 use OCA\FolderRetention\Service\RootProvider;
@@ -56,6 +57,7 @@ class ApiController extends Controller {
 		private IJobList $jobList,
 		private IUserManager $userManager,
 		private IL10N $l,
+		private ContentLanguage $language,
 	) {
 		parent::__construct(Application::APP_ID, $request);
 	}
@@ -323,15 +325,19 @@ class ApiController extends Controller {
 	 * unblock = list of displayed blocks ({key, at} or just the key): lifts exactly these,
 	 * all others stay – including ones added since the page was loaded.
 	 * deletionLimit: 0 = none; resumeDeletion: continue after the limit was reached.
+	 * tagLanguage: language of tag names and log texts, or "neutral" (ContentLanguage::choices()).
 	 */
 	#[PasswordConfirmationRequired]
 	#[FrontpageRoute(verb: 'PUT', url: '/api/settings')]
-	public function putSettings(?bool $simulation = null, ?bool $tags = null, mixed $unblock = null, ?int $logRetentionDays = null, ?int $deletionLimit = null, ?bool $resumeDeletion = null): JSONResponse {
+	public function putSettings(?bool $simulation = null, ?bool $tags = null, mixed $unblock = null, ?int $logRetentionDays = null, ?int $deletionLimit = null, ?bool $resumeDeletion = null, ?string $tagLanguage = null): JSONResponse {
 		if ($deletionLimit !== null && ($deletionLimit < 0 || $deletionLimit > Settings::DELETION_LIMIT_MAX)) {
 			return new JSONResponse(['message' => $this->l->t('Invalid deletion limit')], Http::STATUS_BAD_REQUEST);
 		}
 		if ($logRetentionDays !== null && !in_array($logRetentionDays, Settings::LOG_RETENTION_CHOICES, true)) {
 			return new JSONResponse(['message' => $this->l->t('Invalid log retention')], Http::STATUS_BAD_REQUEST);
+		}
+		if ($tagLanguage !== null && !in_array($tagLanguage, $this->language->choices(), true)) {
+			return new JSONResponse(['message' => $this->l->t('Invalid tag language')], Http::STATUS_BAD_REQUEST);
 		}
 		$unblockKeys = null;
 		if ($unblock !== null) {
@@ -354,6 +360,11 @@ class ApiController extends Controller {
 		}
 		if ($resumeDeletion === true) {
 			$this->settings->resumeDeletion();
+		}
+		if ($tagLanguage !== null && $tagLanguage !== $this->language->choice()) {
+			$this->language->choose($tagLanguage);
+			// every file moves to the tag with the new name; the old tags are deleted afterwards
+			$this->queueTagSync(null);
 		}
 		if ($tags !== null && $tags !== $this->settings->tagsEnabled()) {
 			$this->settings->setTagsEnabled($tags);
@@ -423,6 +434,9 @@ class ApiController extends Controller {
 		return [
 			'simulation' => $this->settings->isSimulation(),
 			'tags' => $this->settings->tagsEnabled(),
+			// language of tag names and log texts, or "neutral"
+			'tagLanguage' => $this->language->choice(),
+			'tagLanguageChoices' => $this->language->choices(),
 			'logRetentionDays' => $this->settings->logRetentionDays(),
 			'logRetentionChoices' => Settings::LOG_RETENTION_CHOICES,
 			// 0 = no limit; deletionHalt set = limit reached, nothing is deleted until resumed

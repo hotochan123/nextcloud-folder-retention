@@ -50,6 +50,7 @@ class ApiControllerLogTest extends TestCase {
 			$this->createMock(IJobList::class),
 			$this->createMock(IUserManager::class),
 			FakeL10N::de(),
+			$this->createMock(\OCA\FolderRetention\Service\ContentLanguage::class),
 		);
 	}
 

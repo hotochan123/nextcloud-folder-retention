@@ -332,14 +332,26 @@ installations updated from a version before 0.9.0 keep German (their
 "Aufbewahrung: …" tags keep their names), new installations take the
 instance's `default_language` if the app ships it (`de_DE` counts as `de`),
 otherwise English. It is never changed automatically, and `forceLanguage`
-or `force_language` do not affect it. To switch deliberately:
+or `force_language` do not affect it.
+
+A system tag has exactly one name for all accounts — Nextcloud does not
+translate tag names. To switch deliberately, use **Language of tags and log
+entries** in the settings: one of the shipped languages, or **Neutral** for
+instances whose accounts use different languages (tags then read "⌛ 7 d",
+"⌛ 2 w", "⌛ 6 m", "⌛ ∞"; log texts are English; app config
+`tag_format=neutral`). The change queues a full tag sync (within a few
+minutes with system cron): every file moves to the tag with the new name, and
+the app's own tags that no file carries anymore are deleted. Tags created by
+anyone else are never touched. The same from the command line:
 
 ```bash
 occ config:app:set folder_retention tag_language --value=en
-occ folder_retention:tags   # creates the new tags, removes the old ones from files
+occ config:app:delete folder_retention tag_format   # or --value=neutral via config:app:set
+occ folder_retention:tags   # moves the files to the new tags, deletes the old ones
 ```
 
-Log entries written before the switch keep their language.
+Log entries written before the switch keep their language. Flow rules that
+refer to a retention tag by name or ID must be adjusted after a switch.
 
 ## 9. Remove
 

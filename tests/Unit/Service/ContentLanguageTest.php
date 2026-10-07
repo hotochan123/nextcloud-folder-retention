@@ -34,6 +34,9 @@ class ContentLanguageTest extends TestCase {
 			$this->writes++;
 			return true;
 		});
+		$appConfig->method('deleteKey')->willReturnCallback(function (string $app, string $key) {
+			unset($this->app[$key]);
+		});
 		$config = $this->createMock(IConfig::class);
 		$config->method('getSystemValueString')->willReturnCallback(fn (string $key, string $default = '') => $key === 'default_language' && $this->defaultLanguage !== '' ? $this->defaultLanguage : $default);
 		$test = $this;
@@ -121,6 +124,41 @@ class ContentLanguageTest extends TestCase {
 		$this->assertSame('en', $language->initialize());
 		$this->assertSame('en', $language->code());
 		$this->assertSame(0, $this->writes);
+	}
+
+	/** The settings offer English, every shipped translation and neutral tags */
+	public function testChoicesListShippedLanguagesAndNeutral(): void {
+		$this->assertSame(['de', 'en', ContentLanguage::NEUTRAL], $this->language()->choices());
+	}
+
+	public function testChooseLanguage(): void {
+		$this->app[ContentLanguage::CONFIG_KEY] = 'de';
+		$language = $this->language();
+		$this->assertSame('de', $language->choice());
+		$language->choose('en');
+		$this->assertSame('en', $language->choice());
+		$this->assertSame('en', $language->code(), 'cached code is reset');
+		$this->assertSame('en', $this->app[ContentLanguage::CONFIG_KEY]);
+		$this->assertFalse($language->neutralTags());
+	}
+
+	/** Neutral: tags without words, texts in English; choosing a language again ends it */
+	public function testChooseNeutralAndBack(): void {
+		$this->app[ContentLanguage::CONFIG_KEY] = 'de';
+		$language = $this->language();
+		$language->choose(ContentLanguage::NEUTRAL);
+		$this->assertTrue($language->neutralTags());
+		$this->assertSame(ContentLanguage::NEUTRAL, $language->choice());
+		$this->assertSame('en', $language->code());
+		$language->choose('de');
+		$this->assertFalse($language->neutralTags());
+		$this->assertArrayNotHasKey(ContentLanguage::FORMAT_KEY, $this->app);
+		$this->assertSame('de', $language->choice());
+	}
+
+	public function testChooseRejectsUnknownLanguage(): void {
+		$this->expectException(\InvalidArgumentException::class);
+		$this->language()->choose('fr');
 	}
 
 	public function testCodeDeterminesOnceWhenUnset(): void {

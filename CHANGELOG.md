@@ -7,6 +7,20 @@ All notable changes to Folder Retention are documented here. The format follows
 Release notes on the Nextcloud App Store are taken from the topmost sections of
 this file, so every published version needs an entry here.
 
+## [Unreleased]
+
+### Added
+- Settings: **Language of tags and log entries** — a shipped language or
+  **Neutral** ("⌛ 2 w", "⌛ ∞") for instances whose accounts use different
+  languages; a system tag has one name for everyone. Switching re-tags all
+  files in the background.
+
+### Changed
+- After a complete tag sync the app deletes its own tags that no file carries
+  anymore and whose name no current rule produces (e.g. after a language
+  switch or when no rule uses a period anymore). Foreign tags are never
+  touched.
+
 ## [0.9.0] - 2026-10-07
 
 Preparation for the Nextcloud App Store.

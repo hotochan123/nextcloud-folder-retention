@@ -75,6 +75,7 @@ without `js/`, the npm build adds ~1 min.
 | S35 | the same error twice moves the entry instead of adding one (`proc.php repeat`); deletion limit 2: run 1 deletes two and halts, run 2 deletes nothing, after "resume" the rest | Audit 05.10. (repeats, deletion limit) |
 | S36 | two areas with the same name stay apart in `/api/log/folders` (`root`) and the folder filter; real runs write `root_key`; CSV export streamed with BOM and attachment headers; migration 1004 as a single step on an existing installation | Audit 05.10. (stable area key, streamed CSV) |
 | S37 | superseded simulated hits: rule change marks them at once, overview groups and status filter keep them apart, a new simulated run logs fresh hits, a file moved to the trash bin is marked by `purge`, a real run marks deleted ones; migration 1005 marks existing entries whose rule changed or is gone | "Would delete" that no longer applies |
+| S38 | language of the tags from the settings: German, neutral ("⌛ 1 d"), English; each switch queues a full tag sync, files carry exactly the new tag, the app's old tags are deleted, a foreign tag stays; an unknown language is rejected (400) | Tag language |
 
 Expectations are deliberately tolerant (file present / in the trash bin / somewhere on disk instead
 of exact status strings) so the 0.8.0 implementation is checked fairly. S10 detects the block

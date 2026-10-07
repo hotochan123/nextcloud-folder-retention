@@ -26,6 +26,21 @@
 		</p>
 
 		<div class="fr-retention">
+			<label for="fr-tag-language">{{ t('folder_retention', 'Language of tags and log entries') }}</label>
+			<select id="fr-tag-language"
+				:value="state.settings.tagLanguage"
+				:disabled="!!busy"
+				@change="setLanguage($event.target)">
+				<option v-for="code in state.settings.tagLanguageChoices ?? []" :key="code" :value="code">
+					{{ languageLabel(code) }}
+				</option>
+			</select>
+		</div>
+		<p class="fr-hint">
+			{{ t('folder_retention', 'A system tag has one name for all accounts, whatever language they use. Choose the main language of your instance – or “Neutral” if your accounts use different languages: tags then read “⌛ 2 w” or “⌛ ∞”, new log entries are written in English. After a change, the tags are renamed within a few minutes; earlier log entries keep their language.') }}
+		</p>
+
+		<div class="fr-retention">
 			<label for="fr-log-retention">{{ t('folder_retention', 'Keep log entries for') }}</label>
 			<select id="fr-log-retention"
 				:value="state.settings.logRetentionDays"
@@ -91,6 +106,23 @@ function retentionLabel(days) {
 		730: t('folder_retention', '2 years'),
 		1825: t('folder_retention', '5 years'),
 	}[days] ?? t('folder_retention', '{days} days', { days })
+}
+
+/** Language names in their own language; "neutral" = tags without words */
+function languageLabel(code) {
+	return {
+		en: 'English',
+		de: 'Deutsch',
+		neutral: t('folder_retention', 'Neutral (⌛ 2 w)'),
+	}[code] ?? code
+}
+
+/** Afterwards the field shows the stored choice again – also after a cancelled confirmation */
+async function setLanguage(el) {
+	if (el.value !== state.settings.tagLanguage) {
+		await set('tagLanguage', el.value)
+	}
+	el.value = state.settings.tagLanguage
 }
 
 /**
