@@ -326,10 +326,11 @@ class ApiController extends Controller {
 	 * all others stay – including ones added since the page was loaded.
 	 * deletionLimit: 0 = none; resumeDeletion: continue after the limit was reached.
 	 * tagLanguage: language of tag names and log texts, or "neutral" (ContentLanguage::choices()).
+	 * filesInfo: deletion date as badge and sidebar tab in the Files app.
 	 */
 	#[PasswordConfirmationRequired]
 	#[FrontpageRoute(verb: 'PUT', url: '/api/settings')]
-	public function putSettings(?bool $simulation = null, ?bool $tags = null, mixed $unblock = null, ?int $logRetentionDays = null, ?int $deletionLimit = null, ?bool $resumeDeletion = null, ?string $tagLanguage = null): JSONResponse {
+	public function putSettings(?bool $simulation = null, ?bool $tags = null, mixed $unblock = null, ?int $logRetentionDays = null, ?int $deletionLimit = null, ?bool $resumeDeletion = null, ?string $tagLanguage = null, ?bool $filesInfo = null): JSONResponse {
 		if ($deletionLimit !== null && ($deletionLimit < 0 || $deletionLimit > Settings::DELETION_LIMIT_MAX)) {
 			return new JSONResponse(['message' => $this->l->t('Invalid deletion limit')], Http::STATUS_BAD_REQUEST);
 		}
@@ -360,6 +361,9 @@ class ApiController extends Controller {
 		}
 		if ($resumeDeletion === true) {
 			$this->settings->resumeDeletion();
+		}
+		if ($filesInfo !== null) {
+			$this->settings->setFilesInfoEnabled($filesInfo);
 		}
 		if ($tagLanguage !== null && $tagLanguage !== $this->language->choice()) {
 			$this->language->choose($tagLanguage);
@@ -437,6 +441,7 @@ class ApiController extends Controller {
 			// language of tag names and log texts, or "neutral"
 			'tagLanguage' => $this->language->choice(),
 			'tagLanguageChoices' => $this->language->choices(),
+			'filesInfo' => $this->settings->filesInfoEnabled(),
 			'logRetentionDays' => $this->settings->logRetentionDays(),
 			'logRetentionChoices' => Settings::LOG_RETENTION_CHOICES,
 			// 0 = no limit; deletionHalt set = limit reached, nothing is deleted until resumed

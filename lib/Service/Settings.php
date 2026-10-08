@@ -98,6 +98,15 @@ class Settings {
 		$this->appConfig->setValueBool(Application::APP_ID, Application::CONFIG_TAGS, $on);
 	}
 
+	/** Show the deletion date in the Files app (badge + sidebar tab)? Default ON */
+	public function filesInfoEnabled(): bool {
+		return $this->appConfig->getValueBool(Application::APP_ID, Application::CONFIG_FILES_INFO, true);
+	}
+
+	public function setFilesInfoEnabled(bool $on): void {
+		$this->appConfig->setValueBool(Application::APP_ID, Application::CONFIG_FILES_INFO, $on);
+	}
+
 	/**
 	 * Days the log keeps its entries (LogRetention::purge). A value set via occ outside
 	 * LOG_RETENTION_CHOICES is clamped into its range – never below the shortest choice.

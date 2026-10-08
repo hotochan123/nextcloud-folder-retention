@@ -14,6 +14,14 @@ this file, so every published version needs an entry here.
   **Neutral** ("⌛ 2 w", "⌛ ∞") for instances whose accounts use different
   languages; a system tag has one name for everyone. Switching re-tags all
   files in the background.
+- Files app: **deletion date next to the file name** ("Oct 29", "in 3 days",
+  "Due") and a **Deletion** tab in the sidebar with date, rule, reference date
+  and where the rule is set; for folders, the rule for the files inside. It is
+  a forecast computed from the rules (WebDAV property `nc:folder-retention`,
+  only computed when the Files app asks for it) and says when simulation mode,
+  the deletion limit or a lock hold deletion back. Through a share, the
+  owner's folder names stay hidden. On by default; switch: **Show the deletion
+  date in the Files app**.
 
 ### Changed
 - After a complete tag sync the app deletes its own tags that no file carries

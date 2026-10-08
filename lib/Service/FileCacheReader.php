@@ -83,6 +83,28 @@ class FileCacheReader {
 		return $row === false ? null : $this->toFileRow($row);
 	}
 
+	/**
+	 * Several files at once (folder listing in the Files app).
+	 *
+	 * @param list<int> $fileIds
+	 * @return array<int, FileRow> fileid → row; missing IDs are left out
+	 */
+	public function getFileRows(array $fileIds): array {
+		$rows = [];
+		foreach (array_chunk(array_values(array_unique($fileIds)), 1000) as $chunk) {
+			$qb = $this->db->getQueryBuilder();
+			$this->selectFileRows($qb)
+				->where($qb->expr()->in('fc.fileid', $qb->createNamedParameter($chunk, IQueryBuilder::PARAM_INT_ARRAY)));
+			$result = $qb->executeQuery();
+			while ($row = $result->fetch()) {
+				$file = $this->toFileRow($row);
+				$rows[$file->fileId] = $file;
+			}
+			$result->closeCursor();
+		}
+		return $rows;
+	}
+
 	private function selectFileRows(IQueryBuilder $qb): IQueryBuilder {
 		return $qb->select('fc.fileid', 'fc.storage', 'fc.parent', 'fc.path', 'fc.mtime', 'fc.size', 'fc.etag', 'fc.mimetype', 'fe.creation_time', 'fe.upload_time', 'fs.first_seen')
 			->from('filecache', 'fc')

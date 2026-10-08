@@ -25,6 +25,17 @@
 			</template>
 		</p>
 
+		<NcCheckboxRadioSwitch type="switch"
+			:model-value="state.settings.filesInfo"
+			:loading="busy === 'filesInfo'"
+			:disabled="!!busy"
+			@update:model-value="set('filesInfo', $event)">
+			{{ t('folder_retention', 'Show the deletion date in the Files app') }}
+		</NcCheckboxRadioSwitch>
+		<p class="fr-hint">
+			{{ t('folder_retention', 'Files with a deletion date get a badge next to their name, and the sidebar gets a “Deletion” tab with date, rule and reference date. Every account sees this for the files it can access. The date is a forecast computed from the folder rules.') }}
+		</p>
+
 		<div class="fr-retention">
 			<label for="fr-tag-language">{{ t('folder_retention', 'Language of tags and log entries') }}</label>
 			<select id="fr-tag-language"

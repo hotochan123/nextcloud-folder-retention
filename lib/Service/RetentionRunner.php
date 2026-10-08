@@ -609,6 +609,17 @@ class RetentionRunner {
 	}
 
 	/**
+	 * "First seen" and last deletion for files shown outside a run (Files app), computed as the
+	 * preview does: nothing is recorded, unseen and restored files count as seen now.
+	 *
+	 * @param list<FileRow> $files
+	 * @return list<FileRow>
+	 */
+	public function withHistory(array $files): array {
+		return $this->enrich($files, $this->time->getTime(), false, $this->settings->seenMaxFileId() ?? 0);
+	}
+
+	/**
 	 * Immediately before deleting: location, parent chain, rules and reference date fresh from the DB.
 	 * The scan may be hours old (occ without time budget), and the parent chains come from the
 	 * cache – moved files or changed rules must not be deleted based on stale state.

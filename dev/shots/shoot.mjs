@@ -268,6 +268,22 @@ try {
 		.catch(() => console.log('  ! files: no system tags rendered'))
 	await report(s, 'files')
 	await shot(s, 'files-tags', 1500)
+
+	// 07 – Files app: deletion date next to the file name (30-day rule: due, soon, later)
+	await s.go(`${HOST}/apps/files/files?dir=/Marketing/Drafts`)
+	await waitFor(s, '.files-list__row', 30000)
+	await until(s, "return document.querySelectorAll('.files-list__row-action-folder_retention-deletion-date').length > 0", [], 15000)
+	await report(s, 'files-deletion-date')
+	await shot(s, 'files-deletion-date', 1200)
+
+	// 08 – sidebar tab "Deletion", opened through the badge
+	await s.script(`
+		const row = Array.from(document.querySelectorAll('.files-list__row')).find((r) => r.textContent.includes('Landing page copy v3'))
+		row?.querySelector('.files-list__row-action-folder_retention-deletion-date')?.click()
+	`)
+	await until(s, "return !!document.querySelector('folder_retention-files-sidebar-tab .fr-tab dl')", [], 15000)
+	await report(s, 'files-sidebar')
+	await shot(s, 'files-sidebar', 1200)
 } catch (e) {
 	failed = true
 	console.error('shooting failed:', e.message)

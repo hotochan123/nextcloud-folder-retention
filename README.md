@@ -57,6 +57,10 @@ The full administrator guide — installation, update, downgrade, removal — is
   so users can see the period in the file list — in one language of your
   choice or language-neutral ("⌛ 2 w"). They are purely informative and do
   not control anything.
+- **Deletion date in the Files app**: a badge next to each file that has one
+  ("Oct 29", "in 3 days", "Due") and a **Deletion** tab in the sidebar with
+  date, rule and reference date. Every account sees it for the files it can
+  access; it is a forecast from the folder rules. Can be switched off.
 
 **How it differs from "Retention" (files_retention).** Nextcloud's own
 Retention app deletes files by collaborative tags and Flow rules. Folder
@@ -131,11 +135,13 @@ Everything is in **Administration settings → Folder Retention**:
    modification. Add "never delete" exceptions on subfolders.
 4. Check the effect with "Show affected files" or `occ folder_retention:run
    --dry-run`.
-5. Optionally switch on the retention tags.
+5. Optionally switch on the retention tags. The deletion date in the Files app
+   is on by default.
 
 Settings stored in the app config: `simulation_mode` (boolean),
 `log_retention_days` (30, 90, 180, 365, 730 or 1825; default 365),
-`deletion_limit` (files per run, 0 = no limit) and `job_time_budget` (seconds
+`deletion_limit` (files per run, 0 = no limit), `files_info` (deletion date in
+the Files app, default on) and `job_time_budget` (seconds
 per background job call). Details:
 [`INSTALL.md`](INSTALL.md#4-set-up).
 

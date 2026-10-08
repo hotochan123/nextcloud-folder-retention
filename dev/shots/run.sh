@@ -248,6 +248,7 @@ put taylor "Projects/Archive/Office Move 2024/Floor plan.pdf" 700 1240
 put taylor "Marketing/Drafts/Newsletter October – draft.docx" 46 84
 put taylor "Marketing/Drafts/Social posts week 38.txt" 35 6
 put sam    "Marketing/Drafts/Landing page copy v3.docx" 27 41
+put taylor "Marketing/Drafts/Flyer autumn.pdf" 9 220
 put taylor "Marketing/Drafts/Press release – draft.docx" 12 37
 put sam    "Marketing/Drafts/Banner concepts.pdf" 3 1530
 put taylor "Marketing/Campaigns/Spring 2026/Campaign brief.pdf" 180 320

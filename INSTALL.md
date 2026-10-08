@@ -222,6 +222,7 @@ occ config:app:set folder_retention simulation_mode --value=1 --type=boolean   #
 occ config:app:set folder_retention job_time_budget --value=120 --type=integer # seconds per job call
 occ config:app:set folder_retention log_retention_days --value=365 --type=integer # 30/90/180/365/730/1825
 occ config:app:set folder_retention deletion_limit --value=500 --type=integer   # 0 = no limit
+occ config:app:set folder_retention files_info --value=0 --type=boolean        # no deletion date in the Files app
 occ config:app:delete folder_retention deletion_halt                         # resume after the limit was reached …
 occ config:app:delete folder_retention cycle_deleted                         # … and count the current cycle anew
 ```
@@ -233,6 +234,17 @@ restored — because a restored file starts its period from the restore; once
 the file is gone for good, its entries expire too. When an account is
 deleted, its log entries (its personal folder) and its work-space marking are
 removed right away; entries in Team folders stay.
+
+**Deletion date in the Files app.** Files with a deletion date show it next to
+their name; the sidebar has a **Deletion** tab (date, rule, reference date,
+where the rule is set). The value is the WebDAV property
+`{http://nextcloud.org/ns}folder-retention` (JSON), computed per folder
+listing only when a client requests it — sync clients never do. It is a
+forecast: a rule change, simulation mode, the deletion limit or a lock
+postpones the real deletion, and the tab says which of these applies.
+Accounts that reach a file through a share see the date but not the names of
+the owner's folders. Switching `files_info` off (settings page or occ) removes
+both the badge and the tab.
 
 "Simulation on" also affects an `occ folder_retention:run` or job that is
 already running: before every deletion the app reads the switch afresh from

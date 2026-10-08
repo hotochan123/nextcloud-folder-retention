@@ -1694,6 +1694,68 @@ s38() {
 	fi
 }
 
+s39() {
+	# WebDAV property nc:folder-retention: "<href-suffix>\t<json>" per response, JSON empty if absent
+	props() {
+		docker exec "$C" curl -s -u "$1:$PW" -X PROPFIND -H "Depth: $3" -H 'Content-Type: application/xml' \
+			-d '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:nc="http://nextcloud.org/ns"><d:prop><nc:folder-retention/><d:getetag/></d:prop></d:propfind>' \
+			"http://localhost/remote.php/dav/files/$1/$2" \
+		| docker exec -i "$C" php -r '
+			$x = simplexml_load_string(stream_get_contents(STDIN));
+			if ($x === false) { exit(1); }
+			$x->registerXPathNamespace("d", "DAV:");
+			$x->registerXPathNamespace("nc", "http://nextcloud.org/ns");
+			foreach ($x->xpath("//d:response") as $r) {
+				$r->registerXPathNamespace("d", "DAV:");
+				$r->registerXPathNamespace("nc", "http://nextcloud.org/ns");
+				$v = $r->xpath("d:propstat[contains(d:status, \"200\")]/d:prop/nc:folder-retention");
+				echo basename(rtrim(urldecode((string)$r->xpath("d:href")[0]), "/")), "\t", $v ? (string)$v[0] : "", "\n";
+			}'
+	}
+	field() { docker exec -i "$C" php -r '$j = json_decode(stream_get_contents(STDIN), true); $v = $j; foreach (explode(".", $argv[1]) as $k) { $v = $v[$k] ?? null; } echo json_encode($v);' "$1"; }
+	api() {
+		docker exec "$C" curl -s -o /dev/null -w '%{http_code}' -u "admin:$PW" -H 'OCS-APIRequest: true' \
+			-H 'Content-Type: application/json' -X PUT -d "$2" "http://localhost/index.php/apps/folder_retention/api/$1"
+	}
+	local folder fileid up listing jfolder jfile jshared joff page hrule hon hoff
+	docker exec "$C" curl -sf -o /dev/null -u "alice:$PW" -X MKCOL http://localhost/remote.php/dav/files/alice/S39
+	put alice S39/s39-a.txt
+	folder=$(fid_path alice S39)
+	fileid=$(fid s39-a.txt)
+	age s39-a.txt 3
+	up=$(sql "SELECT upload_time FROM oc_filecache_extended WHERE fileid = ?" "$fileid")
+	hrule=$(api "rules/$folder" '{"periodUnit":"week","periodValue":1,"scope":"inherit","basis":"created"}')
+	hon=$(api settings '{"filesInfo":true}')
+
+	listing=$(props alice S39 1)
+	jfolder=$(awk -F'\t' '$1 == "S39" { print $2 }' <<<"$listing")
+	jfile=$(awk -F'\t' '$1 == "s39-a.txt" { print $2 }' <<<"$listing")
+
+	docker exec "$C" curl -sf -o /dev/null -u "alice:$PW" -H 'OCS-APIRequest: true' -X POST \
+		-d path=/S39/s39-a.txt -d shareType=0 -d shareWith=bob \
+		http://localhost/ocs/v2.php/apps/files_sharing/api/v1/shares
+	touch_fs bob
+	jshared=$(props bob s39-a.txt 0 | cut -f2)
+
+	page=$(docker exec "$C" curl -s -u "alice:$PW" http://localhost/index.php/apps/files/ | grep -c 'folder_retention-files' || true)
+	hoff=$(api settings '{"filesInfo":false}')
+	joff=$(props alice S39/s39-a.txt 0 | cut -f2)
+	api settings '{"filesInfo":true}' >/dev/null
+
+	local want=$((up + 7 * 86400)) ok=1
+	[[ "$hrule" == 200 && "$hon" == 200 && "$hoff" == 200 ]] || ok=0
+	[[ $(field type <<<"$jfolder") == '"folder"' && $(field source.kind <<<"$jfolder") == '"own"' && $(field period.unit <<<"$jfolder") == '"week"' ]] || ok=0
+	[[ $(field type <<<"$jfile") == '"file"' && $(field expiresAt <<<"$jfile") == "$want" && $(field source.name <<<"$jfile") == '"S39"' ]] || ok=0
+	[[ $(field expiresAt <<<"$jshared") == "$want" && $(field source.name <<<"$jshared") == null ]] || ok=0
+	[[ "$page" -ge 1 && -z "$joff" ]] || ok=0
+	local note="rule $hrule; folder: $jfolder; file: $jfile (want expiresAt $want); bob via share: $jshared; script in Files page: $page; switched off ($hoff): [${joff}]"
+	if [[ $ok == 1 ]]; then
+		result PASS S39 "$note"
+	else
+		result FAIL S39 "$note"
+	fi
+}
+
 # ---------------------------------------------------------------- sequence
 
 setup
@@ -1736,6 +1798,7 @@ scenario S35 s35
 scenario S36 s36
 scenario S37 s37
 scenario S38 s38
+scenario S39 s39
 
 pass=$(grep -c '^PASS ' "$RES" || true)
 fail=$(grep -c '^FAIL ' "$RES" || true)
