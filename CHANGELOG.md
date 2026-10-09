@@ -7,7 +7,7 @@ All notable changes to Folder Retention are documented here. The format follows
 Release notes on the Nextcloud App Store are taken from the topmost sections of
 this file, so every published version needs an entry here.
 
-## [Unreleased]
+## [0.9.1] - 2026-10-09
 
 ### Added
 - Settings: **Language of tags and log entries** — a shipped language or

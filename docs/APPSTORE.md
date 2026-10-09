@@ -20,7 +20,7 @@ Planned public repository: `hotochan123/nextcloud-folder-retention`.
 | Public repository | done — `hotochan123/nextcloud-folder-retention` is public, Issues and private vulnerability reporting enabled |
 | Certificate | done — issued 2026-10-07 (nextcloud/app-certificate-requests#1307), valid until 2037-01-12 |
 | App ID registered | done |
-| Screenshots | done — six PNGs under `screenshots/` (`dev/shots/run.sh`), referenced in `info.xml` via `raw.githubusercontent.com` |
+| Screenshots | done — eight PNGs under `screenshots/` (`dev/shots/run.sh`), referenced in `info.xml` via `raw.githubusercontent.com` |
 | Public e-mail address | none, as for Pulse — commits use the GitHub no-reply address, contact through the issue tracker |
 
 ## Once
