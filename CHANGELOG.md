@@ -7,6 +7,14 @@ All notable changes to Folder Retention are documented here. The format follows
 Release notes on the Nextcloud App Store are taken from the topmost sections of
 this file, so every published version needs an entry here.
 
+## [0.9.2] - 2026-11-03
+
+### Fixed
+- The app icon in the administration settings was barely visible in the light
+  theme and dark in the dark theme: the light and dark icons were swapped
+  (`img/app.svg` is now white, `img/app-dark.svg` dark, as Nextcloud expects).
+  Thanks to @stratisco (#1, #2).
+
 ## [0.9.1] - 2026-10-09
 
 ### Added

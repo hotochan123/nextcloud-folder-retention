@@ -128,7 +128,7 @@ anlassen, bis das Protokoll zeigt, was erwartet wird. Details in der
 [README](https://github.com/hotochan123/nextcloud-folder-retention#how-this-app-was-built-ai-disclosure)
 (englisch).
 	]]></description>
-	<version>0.9.1</version>
+	<version>0.9.2</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author homepage="https://github.com/hotochan123">hotochan123</author>
 	<namespace>FolderRetention</namespace>
